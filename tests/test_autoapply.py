@@ -214,3 +214,25 @@ def test_api_smoke():
     apps = c.get("/api/applications").json()
     assert apps and c.get(f"/api/applications/{apps[0]['id']}").json()["answers"]
     assert c.post("/api/jobs/add", json={"url": "https://example.com/x"}).status_code == 400
+
+
+def test_gemini_provider(monkeypatch):
+    import httpx
+
+    from autoapply import llm
+    from autoapply.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "k")
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "llm_provider", "")
+    monkeypatch.setattr(settings, "model", "")
+    seen = {}
+
+    def fake_post(url, headers, json, timeout):
+        seen.update(url=url, key=headers["x-goog-api-key"], system=json["system_instruction"]["parts"][0]["text"])
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": '{"a": 1}'}]}}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    assert llm.provider() == "gemini" and llm.available()
+    assert llm.complete_json("sys", "hi") == {"a": 1}
+    assert "gemini-3.5-flash-lite:generateContent" in seen["url"] and seen["key"] == "k" and seen["system"] == "sys"

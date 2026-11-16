@@ -26,7 +26,7 @@ git clone <this repo> && cd autoapply
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 playwright install chromium        # skip if Google Chrome is installed
-cp .env.example .env               # add ANTHROPIC_API_KEY
+cp .env.example .env               # add GEMINI_API_KEY (free) or ANTHROPIC_API_KEY
 autoapply init                     # creates data/profile.yaml and data/companies.yaml
 ```
 
@@ -66,8 +66,10 @@ Task Scheduler on Windows). Start with reviews on until you trust the answers.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | (none) | Needed for tailoring, cover letters and open-ended answers. Without it the base résumé is used and unknown questions are left for you. |
-| `AUTOAPPLY_MODEL` | `claude-sonnet-5-5` | Model for all LLM calls. |
+| `GEMINI_API_KEY` | (none) | Free option, no card: get a key at https://aistudio.google.com/apikey. On the free tier Google may use your prompts (your résumé text) to improve its products. |
+| `ANTHROPIC_API_KEY` | (none) | Paid option. Set one of the two keys; it powers tailoring, cover letters and open-ended answers. Without either, the base résumé is used and unknown questions are left for you. |
+| `AUTOAPPLY_LLM_PROVIDER` | auto | `gemini` or `anthropic`. Only needed if both keys are set. |
+| `AUTOAPPLY_MODEL` | per provider | `gemini-3.5-flash-lite` (about 500 free requests/day) or `claude-sonnet-5-5`. |
 | `AUTOAPPLY_HEADLESS` | `false` | Show the browser. Keep it visible so you can solve a CAPTCHA when one appears. |
 | `AUTOAPPLY_REVIEW_BEFORE_SUBMIT` | `true` | Pause on the filled form. |
 | `AUTOAPPLY_AUTO_APPROVE_RESUME` | `false` | Skip the résumé diff review. |

@@ -33,8 +33,12 @@ class Settings:
     database_url: str = field(
         default_factory=lambda: os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'autoapply.db'}")
     )
+    # LLM provider: "anthropic" (ANTHROPIC_API_KEY) or "gemini" (GEMINI_API_KEY, free tier at
+    # https://aistudio.google.com/apikey). Auto-detected from whichever key is set if not given.
+    llm_provider: str = field(default_factory=lambda: os.environ.get("AUTOAPPLY_LLM_PROVIDER", ""))
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
-    model: str = field(default_factory=lambda: os.environ.get("AUTOAPPLY_MODEL", "claude-sonnet-5-5"))
+    gemini_api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
+    model: str = field(default_factory=lambda: os.environ.get("AUTOAPPLY_MODEL", ""))
 
     # Browser
     headless: bool = field(default_factory=lambda: _bool("AUTOAPPLY_HEADLESS", False))

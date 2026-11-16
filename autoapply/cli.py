@@ -132,7 +132,7 @@ def check() -> None:
     for p in problems:
         typer.echo(f"profile: {p}")
     from . import llm
-    typer.echo(f"LLM: {'ready (' + settings.model + ')' if llm.available() else 'ANTHROPIC_API_KEY not set (no tailoring, no open-ended answers)'}")
+    typer.echo(f"LLM: {'ready (' + llm.provider() + ', ' + llm.model() + ')' if llm.available() else 'No ANTHROPIC_API_KEY or GEMINI_API_KEY set (no tailoring, no open-ended answers)'}")
     typer.echo(f"Review before submit: {settings.review_before_submit} | auto-approve résumé: {settings.auto_approve_resume}")
     typer.echo("Profile OK." if not problems else f"{len(problems)} profile problem(s).")
 
