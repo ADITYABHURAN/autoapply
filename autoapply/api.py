@@ -11,12 +11,19 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+import yaml
+
 from . import discovery, engine, matching
 from .config import settings
 from .db import TRACKER_STAGES, Application, Job, init_db, session
+from .profile import TEMPLATE, load_profile, validate, write_template
 
 app = FastAPI(title="AutoApply")
 init_db()
+write_template()
+if not settings.companies_path.exists():
+    import shutil
+    shutil.copy(Path(__file__).parent / "companies.seed.yaml", settings.companies_path)
 
 _work: "queue.Queue[tuple[str, Any]]" = queue.Queue()
 _log: list[str] = []
@@ -223,6 +230,25 @@ def resume_pdf(app_id: int):
         if not a or not a.resume_pdf or not Path(a.resume_pdf).exists():
             raise HTTPException(404)
         return FileResponse(a.resume_pdf, media_type="application/pdf")
+
+
+@app.get("/api/profile")
+def get_profile() -> dict:
+    """The profile plus whatever the blank template defines, so new fields show up in the form."""
+    base = yaml.safe_load(TEMPLATE)
+    try:
+        current = load_profile()
+    except FileNotFoundError:
+        current = {}
+    merged = {**base, **current}
+    return {"profile": merged, "problems": validate(merged)}
+
+
+@app.post("/api/profile")
+def save_profile(body: dict[str, Any]) -> dict:
+    settings.profile_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.profile_path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
+    return {"ok": True, "problems": validate(body)}
 
 
 @app.get("/api/state")

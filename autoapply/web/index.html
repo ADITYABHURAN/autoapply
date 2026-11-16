@@ -37,6 +37,22 @@
   img.shot { max-width:100%; border:1px solid var(--line); border-radius:8px; margin-top:8px; }
   .empty { color:var(--mut); padding:30px 0; text-align:center; }
   .err { color:var(--bad); font-size:13px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:640px) { .grid2 { grid-template-columns:1fr; } }
+  .field { margin-bottom:10px; } .field label { display:block; font-size:12.5px; color:var(--mut); margin-bottom:3px; }
+  .field input, .field select, .field textarea { width:100%; }
+  fieldset { border:1px solid var(--line); border-radius:10px; padding:14px; margin:0 0 14px; }
+  legend { font-size:13px; color:var(--mut); padding:0 6px; }
+  .chip-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+  .chip { display:flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--line); border-radius:99px; padding:3px 6px 3px 11px; font-size:13px; }
+  .chip button { border:none; background:none; color:var(--mut); cursor:pointer; font-size:15px; line-height:1; padding:2px; }
+  .entry { border:1px dashed var(--line); border-radius:10px; padding:12px; margin-bottom:10px; position:relative; }
+  .entry .rm { position:absolute; top:8px; right:8px; }
+  .bullets div { display:flex; gap:6px; margin-bottom:4px; }
+  .bullets input { flex:1; }
+  .savebar { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:4px 0 0; display:flex; gap:10px; align-items:center; }
+  .toast { font-size:13px; color:var(--ok); }
+  .profile-problems { color:var(--warn); font-size:13px; margin-bottom:12px; }
 </style>
 </head>
 <body>
@@ -45,6 +61,7 @@
   <nav>
     <button data-tab="matches" class="on">Matches</button>
     <button data-tab="apps">Applications</button>
+    <button data-tab="profile">Profile</button>
     <button data-tab="log">Activity</button>
   </nav>
   <span class="meta" id="meta"></span>
@@ -64,6 +81,7 @@
     <div id="joblist"></div>
   </section>
   <section id="apps" hidden><div id="applist"></div></section>
+  <section id="profile" hidden><div id="profileform"></div></section>
   <section id="log" hidden><pre id="logbox"></pre></section>
 </main>
 <script>
@@ -78,7 +96,8 @@ let openApp = null;
 
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
-  ['matches', 'apps', 'log'].forEach(id => $('#' + id).hidden = id !== b.dataset.tab);
+  ['matches', 'apps', 'profile', 'log'].forEach(id => $('#' + id).hidden = id !== b.dataset.tab);
+  if (b.dataset.tab === 'profile') loadProfile();
   refresh();
 });
 
@@ -186,6 +205,177 @@ async function refresh() {
     if (!$('#apps').hidden && !$('#applist').querySelector(':focus')) loadApps();
   } catch (e) { $('#meta').textContent = 'Server not reachable'; }
 }
+// ---------------------------------------------------------------- Profile
+let PROFILE = null;
+
+async function loadProfile() {
+  if (PROFILE) return renderProfile();
+  const data = await api('/profile');
+  PROFILE = data.profile;
+  renderProfile(data.problems);
+}
+
+function row(path, label, opts) {
+  opts = opts || {};
+  const v = (path.split('.').reduce((o, k) => (o || {})[k], PROFILE) ?? '');
+  const id = 'f_' + path.replace(/\./g, '_');
+  let input;
+  if (opts.select) {
+    input = `<select id="${id}" data-path="${path}">${opts.select.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  } else if (opts.textarea) {
+    input = `<textarea id="${id}" data-path="${path}" rows="${opts.rows || 3}">${esc(v)}</textarea>`;
+  } else if (opts.checkbox) {
+    input = `<select id="${id}" data-path="${path}" data-bool="1"><option value="true" ${v ? 'selected' : ''}>Yes</option><option value="false" ${!v ? 'selected' : ''}>No</option></select>`;
+  } else if (opts.number) {
+    input = `<input type="number" id="${id}" data-path="${path}" value="${esc(v)}">`;
+  } else {
+    input = `<input type="text" id="${id}" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || '')}">`;
+  }
+  return `<div class="field"><label for="${id}">${esc(label)}</label>${input}</div>`;
+}
+
+function chipList(path, label, placeholder) {
+  const items = (path.split('.').reduce((o, k) => (o || {})[k], PROFILE) || []);
+  return `<div class="field" data-chips="${path}">
+    <label>${esc(label)}</label>
+    <div class="chip-row">${items.map((v, i) => `<span class="chip">${esc(v)}<button type="button" onclick="removeChip('${path}',${i})">&times;</button></span>`).join('')}</div>
+    <div style="display:flex;gap:6px;margin-top:6px"><input type="text" placeholder="${esc(placeholder)}" onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('${path}',this)}">
+    <button type="button" class="btn small" onclick="addChip('${path}',this.previousElementSibling)">Add</button></div></div>`;
+}
+function getPath(path) { return path.split('.').reduce((o, k) => (o || {})[k], PROFILE); }
+function setPath(path, val) { const ks = path.split('.'); let o = PROFILE; for (const k of ks.slice(0, -1)) o = o[k]; o[ks.at(-1)] = val; }
+function addChip(path, input) {
+  const v = input.value.trim(); if (!v) return;
+  const list = getPath(path) || []; list.push(v); setPath(path, list); input.value = '';
+  renderProfile();
+}
+function removeChip(path, i) { getPath(path).splice(i, 1); renderProfile(); }
+
+function expField(prefix, exp, i) {
+  return `<div class="entry">
+    <button type="button" class="rm btn small" onclick="removeEntry('${prefix}',${i})">Remove</button>
+    <div class="grid2">
+      ${row(`${prefix}.${i}.company`, 'Company')}
+      ${row(`${prefix}.${i}.title`, 'Title')}
+      ${row(`${prefix}.${i}.location`, 'Location')}
+      <div></div>
+      ${row(`${prefix}.${i}.start`, 'Start')}
+      ${row(`${prefix}.${i}.end`, 'End (or "Present")')}
+    </div>
+    <div class="field"><label>What you did (one bullet per line, real facts only — the tailoring step can only reorder and reword these)</label>
+      <textarea rows="4" data-bullets="${prefix}.${i}.bullets">${esc((exp.bullets || []).join('\n'))}</textarea></div>
+  </div>`;
+}
+function eduField(exp, i) {
+  return `<div class="entry">
+    <button type="button" class="rm btn small" onclick="removeEntry('education',${i})">Remove</button>
+    <div class="grid2">
+      ${row(`education.${i}.school`, 'School')}
+      ${row(`education.${i}.degree`, 'Degree (e.g. MS, BS)')}
+      ${row(`education.${i}.field`, 'Field of study')}
+      ${row(`education.${i}.gpa`, 'GPA (optional)')}
+      ${row(`education.${i}.start`, 'Start')}
+      ${row(`education.${i}.end`, 'End')}
+    </div></div>`;
+}
+function projField(exp, i) {
+  return `<div class="entry">
+    <button type="button" class="rm btn small" onclick="removeEntry('projects',${i})">Remove</button>
+    ${row(`projects.${i}.name`, 'Project name')}
+    <div class="field"><label>What it does / what you built (one bullet per line)</label>
+      <textarea rows="3" data-bullets="projects.${i}.bullets">${esc((exp.bullets || []).join('\n'))}</textarea></div>
+  </div>`;
+}
+function addEntry(key, template) { (PROFILE[key] = PROFILE[key] || []).push(template); renderProfile(); }
+function removeEntry(key, i) { PROFILE[key].splice(i, 1); renderProfile(); }
+
+function renderProfile(problems) {
+  const p = PROFILE, el = $('#profileform');
+  el.innerHTML = `
+  <div class="panel">
+    ${(problems && problems.length) ? `<div class="profile-problems">Incomplete: ${problems.map(esc).join('; ')}</div>` : ''}
+
+    <fieldset><legend>Contact</legend><div class="grid2">
+      ${row('personal.first_name', 'First name')}${row('personal.last_name', 'Last name')}
+      ${row('personal.email', 'Email')}${row('personal.phone', 'Phone')}
+      ${row('personal.city', 'City')}${row('personal.state', 'State')}
+      ${row('personal.zip', 'ZIP')}${row('personal.country', 'Country')}
+      ${row('personal.address', 'Street address')}${row('personal.linkedin', 'LinkedIn URL')}
+      ${row('personal.github', 'GitHub URL')}${row('personal.website', 'Website / portfolio')}
+    </div></fieldset>
+
+    <fieldset><legend>Work authorization (used to answer every form's sponsorship/authorization questions)</legend><div class="grid2">
+      ${row('work_authorization.authorized_to_work_in_us', 'Authorized to work in the US', {checkbox: true})}
+      ${row('work_authorization.requires_sponsorship_now', 'Needs sponsorship now', {checkbox: true})}
+      ${row('work_authorization.requires_sponsorship_future', 'Will need sponsorship in future', {checkbox: true})}
+      ${row('work_authorization.visa_status', 'Visa status (e.g. F-1 OPT)')}
+    </div></fieldset>
+
+    <fieldset><legend>Voluntary self-identification (EEO) — safe defaults decline to answer</legend><div class="grid2">
+      ${row('eeo.gender', 'Gender')}${row('eeo.race', 'Race/ethnicity')}
+      ${row('eeo.veteran', 'Veteran status')}${row('eeo.disability', 'Disability status')}
+    </div></fieldset>
+
+    <fieldset><legend>Job preferences</legend>
+      ${chipList('preferences.titles', 'Target titles', 'e.g. AI Engineer, then Enter')}
+      ${chipList('preferences.locations', 'Preferred locations', 'e.g. New York, then Enter')}
+      ${chipList('preferences.exclude_keywords', 'Exclude titles containing', 'e.g. Staff, then Enter')}
+      <div class="grid2">
+        ${row('preferences.remote_ok', 'Remote OK', {checkbox: true})}
+        ${row('preferences.willing_to_relocate', 'Willing to relocate', {checkbox: true})}
+        ${row('preferences.max_years_experience', 'Max years of experience asked for', {number: true})}
+        ${row('preferences.start_date', 'Availability / start date')}
+        ${row('preferences.salary_expectation', 'Salary expectation (optional)')}
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Summary</legend>${row('summary', '', {textarea: true, rows: 3, placeholder: 'One or two sentences about you.'})}</fieldset>
+
+    <fieldset><legend>Skills</legend>${chipList('skills', '', 'e.g. Python, then Enter')}</fieldset>
+
+    <fieldset><legend>Experience</legend>
+      <div id="exp-list">${(p.experience || []).map((e, i) => expField('experience', e, i)).join('')}</div>
+      <button type="button" class="btn small" onclick="addEntry('experience',{company:'',title:'',location:'',start:'',end:'Present',bullets:[]})">+ Add job</button>
+    </fieldset>
+
+    <fieldset><legend>Education</legend>
+      <div>${(p.education || []).map((e, i) => eduField(e, i)).join('')}</div>
+      <button type="button" class="btn small" onclick="addEntry('education',{school:'',degree:'',field:'',start:'',end:'',gpa:''})">+ Add school</button>
+    </fieldset>
+
+    <fieldset><legend>Projects (optional)</legend>
+      <div>${(p.projects || []).map((e, i) => projField(e, i)).join('')}</div>
+      <button type="button" class="btn small" onclick="addEntry('projects',{name:'',bullets:[]})">+ Add project</button>
+    </fieldset>
+
+    <fieldset><legend>Notes for open-ended questions (e.g. "why this company")</legend>
+      ${row('about_me', '', {textarea: true, rows: 3, placeholder: 'Anything the AI should know when writing open-ended answers.'})}
+    </fieldset>
+
+    <div class="savebar"><button class="btn primary" onclick="saveProfile()">Save profile</button><span class="toast" id="savetoast"></span></div>
+  </div>`;
+}
+
+function collectProfile() {
+  const el = $('#profileform');
+  el.querySelectorAll('[data-path]').forEach(inp => {
+    let v = inp.value;
+    if (inp.dataset.bool) v = v === 'true';
+    else if (inp.type === 'number') v = v === '' ? null : Number(v);
+    setPath(inp.dataset.path, v);
+  });
+  el.querySelectorAll('[data-bullets]').forEach(ta => {
+    setPath(ta.dataset.bullets, ta.value.split('\n').map(s => s.trim()).filter(Boolean));
+  });
+  return PROFILE;
+}
+async function saveProfile() {
+  const body = collectProfile();
+  const r = await api('/profile', body);
+  $('#savetoast').textContent = r.problems.length ? 'Saved — still incomplete: ' + r.problems.join('; ') : 'Saved.';
+  setTimeout(() => $('#savetoast').textContent = '', 4000);
+}
+
 refresh(); setInterval(refresh, 4000);
 </script>
 </body>
