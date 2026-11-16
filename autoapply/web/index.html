@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoApply</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#15181d; --mut:#5d6672; --line:#e2e5ea; --acc:#1f5fd1; --ok:#17794a; --warn:#9a5b00; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111417; --card:#1a1e23; --ink:#e9ecf0; --mut:#9aa4b1; --line:#2b3138; --acc:#7fb0ff; --ok:#5fd19a; --warn:#f0b452; --bad:#ff8a80; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  nav button, .btn { font:inherit; padding:7px 13px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; }
+  nav button.on { border-color:var(--acc); color:var(--acc); }
+  .btn.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  @media (prefers-color-scheme: dark) { .btn.primary { color:#0b1220; } }
+  .btn.small { padding:4px 9px; font-size:13px; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .meta { margin-left:auto; color:var(--mut); font-size:13px; }
+  main { max-width:1100px; margin:0 auto; padding:20px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  input[type=text], input[type=number], textarea, select { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
+  input[type=text] { flex:1; min-width:200px; }
+  .row { display:grid; grid-template-columns:52px 1fr auto; gap:14px; align-items:center; padding:12px 14px; background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; }
+  .score { font-weight:600; font-size:17px; text-align:center; }
+  .t { font-weight:600; } .s { color:var(--mut); font-size:13px; overflow-wrap:anywhere; }
+  .pill { display:inline-block; padding:1px 9px; border-radius:99px; font-size:12px; border:1px solid var(--line); color:var(--mut); }
+  .pill.ok { color:var(--ok); border-color:var(--ok); } .pill.warn { color:var(--warn); border-color:var(--warn); } .pill.bad { color:var(--bad); border-color:var(--bad); }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin:-2px 0 12px; }
+  .panel h3 { margin:14px 0 6px; font-size:14px; } .panel h3:first-child { margin-top:0; }
+  pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--bg); padding:10px; border-radius:8px; font-size:12.5px; max-height:320px; overflow:auto; margin:0; }
+  .add { color:var(--ok); } .del { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  td { padding:6px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  td:first-child { width:38%; } td textarea, td select, td input { width:100%; }
+  img.shot { max-width:100%; border:1px solid var(--line); border-radius:8px; margin-top:8px; }
+  .empty { color:var(--mut); padding:30px 0; text-align:center; }
+  .err { color:var(--bad); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AutoApply</h1>
+  <nav>
+    <button data-tab="matches" class="on">Matches</button>
+    <button data-tab="apps">Applications</button>
+    <button data-tab="log">Activity</button>
+  </nav>
+  <span class="meta" id="meta"></span>
+</header>
+<main>
+  <section id="matches">
+    <div class="bar">
+      <input type="text" id="q" placeholder="Filter by title, company or location">
+      <input type="number" id="min" value="60" min="0" max="100" style="width:80px" title="Minimum match score">
+      <button class="btn" id="discover">Refresh jobs</button>
+      <button class="btn" id="auto" title="Queue the top matches within your daily cap">Auto Apply</button>
+    </div>
+    <div class="bar">
+      <input type="text" id="url" placeholder="Paste a Greenhouse, Lever or Ashby job link">
+      <button class="btn" id="addurl">Add job</button>
+    </div>
+    <div id="joblist"></div>
+  </section>
+  <section id="apps" hidden><div id="applist"></div></section>
+  <section id="log" hidden><pre id="logbox"></pre></section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api = async (path, body) => {
+  const r = await fetch('/api' + path, body === undefined ? {} : {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+let openApp = null;
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  ['matches', 'apps', 'log'].forEach(id => $('#' + id).hidden = id !== b.dataset.tab);
+  refresh();
+});
+
+async function loadJobs() {
+  const jobs = await api(`/jobs?min_score=${+$('#min').value || 0}&q=${encodeURIComponent($('#q').value)}`);
+  $('#joblist').innerHTML = jobs.length ? jobs.map(j => `
+    <div class="row">
+      <div class="score">${j.score ?? '-'}</div>
+      <div><div class="t">${esc(j.title)}</div>
+        <div class="s">${esc(j.company)} · ${esc(j.location || 'Location not listed')} · ${esc(j.ats)} · <a href="${esc(j.url)}" target="_blank" rel="noopener">posting</a></div>
+        <div class="s">${esc((j.reasons?.matched_skills || []).slice(0, 8).join(', '))}</div></div>
+      <div><button class="btn primary small" onclick="applyTo(${j.id}, this)">Apply</button>
+        <button class="btn small" onclick="dismiss(${j.id})">Hide</button></div>
+    </div>`).join('') : '<div class="empty">No matches yet. Press "Refresh jobs", lower the score, or paste a job link.</div>';
+}
+async function applyTo(id, btn) { btn.disabled = true; btn.textContent = 'Queued'; await api(`/jobs/${id}/apply`, {}); }
+async function dismiss(id) { await api(`/jobs/${id}/dismiss`, {}); loadJobs(); }
+
+const tone = s => s === 'submitted' ? 'ok' : s.startsWith('awaiting') ? 'warn' : ['failed', 'needs_manual'].includes(s) ? 'bad' : '';
+const nice = s => ({awaiting_resume_approval:'Review résumé', awaiting_submit_approval:'Review form', needs_manual:'Needs you', ready_to_fill:'Ready to fill'}[s] || s[0].toUpperCase() + s.slice(1));
+
+async function loadApps() {
+  const apps = await api('/applications');
+  $('#applist').innerHTML = apps.length ? apps.map(a => `
+    <div class="row" style="grid-template-columns:1fr auto">
+      <div><div class="t">${esc(a.job.title)} <span class="pill ${tone(a.status)}">${esc(nice(a.status))}</span>
+        ${a.stage && a.stage !== 'applied' ? `<span class="pill">${esc(a.stage)}</span>` : ''}</div>
+        <div class="s">${esc(a.job.company)} · #${a.id} · ${a.source === 'auto' ? 'Auto Apply' : 'manual'}</div>
+        ${a.error && a.status !== 'submitted' ? `<div class="err">${esc(a.error.split('\n')[0])}</div>` : ''}</div>
+      <div><button class="btn small" onclick="toggle(${a.id})">${openApp === a.id ? 'Close' : 'Open'}</button></div>
+    </div><div id="panel-${a.id}"></div>`).join('') : '<div class="empty">No applications yet.</div>';
+  if (openApp) renderPanel(openApp);
+}
+function toggle(id) { openApp = openApp === id ? null : id; loadApps(); }
+
+function diffHtml(d) {
+  return esc(d).split('\n').map(l => l.startsWith('+') && !l.startsWith('+++') ? `<span class="add">${l}</span>` : l.startsWith('-') && !l.startsWith('---') ? `<span class="del">${l}</span>` : l).join('\n');
+}
+function fieldInput(r, i) {
+  const v = Array.isArray(r.value) ? r.value.join('; ') : (r.value ?? '');
+  if (r.kind === 'file') return esc(v || '(none)');
+  if (r.options?.length && r.kind !== 'checkbox_group')
+    return `<select data-i="${i}"><option value=""></option>${r.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  if (r.kind === 'checkbox') return `<select data-i="${i}"><option value="">unchecked</option><option value="true" ${v ? 'selected' : ''}>checked</option></select>`;
+  return `<textarea data-i="${i}" rows="${String(v).length > 90 ? 4 : 1}">${esc(v)}</textarea>`;
+}
+async function renderPanel(id) {
+  const el = $('#panel-' + id); if (!el) return;
+  if (el.dataset.loaded && el.querySelector(':focus')) return;
+  const a = await api('/applications/' + id);
+  let h = '<div class="panel">';
+  if (a.status === 'awaiting_resume_approval') {
+    h += `<h3>Tailored résumé: what changed</h3><pre>${diffHtml(a.resume_diff || 'No changes.')}</pre>
+      <h3>Cover letter</h3><textarea id="cl-${id}" rows="8" style="width:100%">${esc(a.cover_letter || '')}</textarea>
+      <div class="bar" style="margin-top:12px"><button class="btn primary" onclick="okResume(${id})">Approve and fill the form</button>
+      <a class="btn" href="/api/applications/${id}/resume.pdf" target="_blank">View PDF</a>
+      <button class="btn" onclick="act(${id}, 'cancel')">Cancel</button></div>`;
+  } else {
+    if (a.answers.length) {
+      const editable = a.status === 'awaiting_submit_approval';
+      h += `<h3>${editable ? 'Review the filled form' : 'What was submitted'}</h3><table>` + a.answers.map((r, i) => `<tr>
+        <td>${esc(r.label || '(' + r.kind + ')')}${r.required ? ' *' : ''}<div class="s">${esc(r.source)}${r.ok === false ? ` · <span class="err">${esc(r.error || 'not filled')}</span>` : ''}</div></td>
+        <td>${editable ? fieldInput(r, i) : esc(Array.isArray(r.value) ? r.value.join('; ') : r.value ?? '')}</td></tr>`).join('') + '</table>';
+      if (editable) h += `<div class="bar" style="margin-top:12px"><button class="btn primary" onclick="okSubmit(${id})">Approve and submit</button>
+        <button class="btn" onclick="act(${id}, 'cancel')">Cancel</button></div>`;
+    }
+    if (['failed', 'needs_manual', 'cancelled'].includes(a.status)) h += `<div class="bar"><button class="btn" onclick="act(${id}, 'retry')">Retry</button></div>`;
+    if (a.status === 'submitted') h += `<h3>Stage</h3><select onchange="stage(${id}, this.value)">${['applied', 'interviewing', 'offer', 'rejected', 'ghosted'].map(s => `<option ${a.stage === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`;
+    if (a.has_resume) h += ` <a class="btn small" href="/api/applications/${id}/resume.pdf" target="_blank">Résumé PDF</a>`;
+    if (a.has_screenshot) h += `<h3>Screenshot</h3><img class="shot" src="/api/applications/${id}/screenshot?t=${Date.now()}" alt="Screenshot of the application form">`;
+    if (a.error && a.status !== 'submitted') h += `<h3>Details</h3><pre>${esc(a.error)}</pre>`;
+  }
+  el.innerHTML = h + '</div>';
+  el.dataset.loaded = '1'; el._answers = a.answers;
+}
+async function okResume(id) { await api(`/applications/${id}/approve-resume`, {cover_letter: $('#cl-' + id).value}); openApp = null; loadApps(); }
+async function okSubmit(id) {
+  const el = $('#panel-' + id), edits = {};
+  el.querySelectorAll('[data-i]').forEach(inp => {
+    const r = el._answers[+inp.dataset.i], old = Array.isArray(r.value) ? r.value.join('; ') : String(r.value ?? '');
+    const now = r.kind === 'checkbox' ? (inp.value ? 'true' : '') : inp.value;
+    if (now !== (r.kind === 'checkbox' ? (r.value ? 'true' : '') : old)) edits[r.key] = now;
+  });
+  await api(`/applications/${id}/approve-submit`, {edits}); openApp = null; loadApps();
+}
+async function act(id, what) { await api(`/applications/${id}/${what}`, {}); loadApps(); }
+async function stage(id, s) { await api(`/applications/${id}/stage`, {stage: s}); }
+
+$('#discover').onclick = () => api('/discover', {});
+$('#auto').onclick = () => { if (confirm('Queue the top matches for application, within your daily cap?')) api('/auto', {}); };
+$('#addurl').onclick = async () => {
+  try { await api('/jobs/add', {url: $('#url').value.trim()}); $('#url').value = ''; $('#min').value = 0; loadJobs(); }
+  catch (e) { alert(e.message); }
+};
+$('#q').oninput = $('#min').oninput = () => loadJobs();
+
+async function refresh() {
+  try {
+    const st = await api('/state');
+    const waiting = (st.counts.awaiting_resume_approval || 0) + (st.counts.awaiting_submit_approval || 0);
+    $('#meta').textContent = `${st.busy ? 'Working… · ' : ''}${st.jobs_total} jobs · ${st.submitted_today}/${st.daily_cap} submitted today` +
+      (waiting ? ` · ${waiting} waiting for you` : '') + (st.llm ? '' : ' · no LLM key');
+    $('#logbox').textContent = st.log.join('\n') || 'Nothing yet.';
+    if (!$('#matches').hidden && !document.activeElement.matches('#q, #min, #url')) loadJobs();
+    if (!$('#apps').hidden && !$('#applist').querySelector(':focus')) loadApps();
+  } catch (e) { $('#meta').textContent = 'Server not reachable'; }
+}
+refresh(); setInterval(refresh, 4000);
+</script>
+</body>
+</html>

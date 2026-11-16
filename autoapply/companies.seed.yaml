@@ -1,0 +1,34 @@
+# Companies to watch, by the ATS that hosts their careers page.
+# The name is the slug in the careers URL:
+#   job-boards.greenhouse.io/<slug>   jobs.lever.co/<slug>   jobs.ashbyhq.com/<slug>
+# Slugs change when a company moves ATS; `autoapply discover` prints any that fail.
+greenhouse:
+  - stripe
+  - databricks
+  - anthropic
+  - figma
+  - datadog
+  - robinhood
+  - coinbase
+  - brex
+  - discord
+  - airtable
+  - gusto
+  - samsara
+  - mongodb
+  - affirm
+  - chime
+lever:
+  - plaid
+  - palantir
+  - spotify
+ashby:
+  - openai
+  - ramp
+  - notion
+  - linear
+  - harvey
+  - cohere
+  - perplexity
+  - vanta
+  - deel

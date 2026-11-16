@@ -1,0 +1,148 @@
+"""Command line: autoapply init | discover | jobs | add | apply | run | auto | status | serve"""
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import Optional
+
+import typer
+from sqlalchemy import select
+
+from . import discovery, engine, matching
+from .config import settings
+from .db import Application, Job, init_db, session
+from .profile import load_profile, validate, write_template
+
+app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
+SEED = Path(__file__).parent / "companies.seed.yaml"
+
+
+@app.callback()
+def _startup() -> None:
+    init_db()
+
+
+@app.command()
+def init() -> None:
+    """Create data/profile.yaml and data/companies.yaml."""
+    path = write_template()
+    if not settings.companies_path.exists():
+        shutil.copy(SEED, settings.companies_path)
+    typer.echo(f"Profile:   {path}\nCompanies: {settings.companies_path}\nFill in the profile, then run `autoapply discover`.")
+
+
+@app.command()
+def discover() -> None:
+    """Pull open jobs from every company in companies.yaml and score them."""
+    typer.echo("Checking career pages...")
+    new = discovery.discover(log=typer.echo)
+    scored = matching.score_all()
+    typer.echo(f"{len(new)} new jobs; {scored} scored. See them with `autoapply jobs`.")
+
+
+@app.command()
+def jobs(min_score: int = typer.Option(None, help="Defaults to your match threshold"), limit: int = 30) -> None:
+    """List the best unapplied matches."""
+    floor = settings.match_threshold if min_score is None else min_score
+    with session() as s:
+        rows = s.scalars(select(Job).where(Job.score >= floor, Job.dismissed.is_(False),
+                                           Job.id.notin_(select(Application.job_id)))
+                         .order_by(Job.score.desc(), Job.first_seen.desc()).limit(limit)).all()
+        for j in rows:
+            typer.echo(f"#{j.id:<6} {j.score:>3}  {j.title[:48]:<48} {j.company[:18]:<18} {j.location[:26]}")
+    if not rows:
+        typer.echo("No matches at that score. Try --min-score 50, or add companies to data/companies.yaml.")
+
+
+@app.command()
+def add(url: str) -> None:
+    """Add one job from a Greenhouse, Lever or Ashby link."""
+    job_id = discovery.add_job_from_url(url)
+    if job_id is None:
+        typer.echo("Couldn't read that link (supported: Greenhouse, Lever, Ashby job pages).")
+        raise typer.Exit(1)
+    matching.score_all(only_unscored=True)
+    typer.echo(f"Added as job #{job_id}. Apply with `autoapply apply {job_id}`.")
+
+
+@app.command()
+def apply(job: str, yes: bool = typer.Option(False, "--yes", help="Skip both review gates for this run")) -> None:
+    """Apply to a job by id or URL. Stops for your review unless --yes."""
+    job_id: Optional[int] = int(job) if job.isdigit() else discovery.add_job_from_url(job)
+    if job_id is None:
+        typer.echo("Unsupported or unknown job link.")
+        raise typer.Exit(1)
+    if yes:
+        settings.auto_approve_resume, settings.review_before_submit = True, False
+    app_id = engine.enqueue(job_id)
+    status = engine.step(app_id, log=typer.echo)
+    typer.echo(f"Application #{app_id}: {status}")
+    if status.startswith("awaiting"):
+        typer.echo("Review it in the dashboard (`autoapply serve`) or approve with `autoapply approve "
+                   f"{app_id}`.")
+
+
+@app.command()
+def approve(app_id: int) -> None:
+    """Approve whatever application #ID is waiting on (résumé or filled form) and continue."""
+    with session() as s:
+        status = s.get(Application, app_id).status
+    if status == "awaiting_resume_approval":
+        engine.approve_resume(app_id)
+    elif status == "awaiting_submit_approval":
+        engine.approve_submit(app_id)
+    else:
+        typer.echo(f"Application #{app_id} is '{status}', nothing to approve.")
+        raise typer.Exit(1)
+    typer.echo(f"Application #{app_id}: {engine.step(app_id, log=typer.echo)}")
+
+
+@app.command()
+def run() -> None:
+    """Process every queued/approved application."""
+    typer.echo(engine.process_queue(log=typer.echo) or "Nothing to do.")
+
+
+@app.command()
+def auto() -> None:
+    """Auto Apply: discover, score, queue the top matches within your daily cap, and process them."""
+    discovery.discover(log=typer.echo)
+    matching.score_all()
+    queued = engine.auto_select(log=typer.echo)
+    typer.echo(f"Queued {len(queued)} application(s).")
+    typer.echo(engine.process_queue(log=typer.echo) or "Nothing to do.")
+
+
+@app.command()
+def status() -> None:
+    """Show the application tracker."""
+    with session() as s:
+        rows = s.scalars(select(Application).order_by(Application.id.desc()).limit(50)).all()
+        for a in rows:
+            typer.echo(f"#{a.id:<5} {a.status:<26} {a.job.title[:44]:<44} {a.job.company}")
+            if a.error and a.status != "submitted":
+                typer.echo(f"       {a.error.splitlines()[0][:110]}")
+    typer.echo(f"Submitted today: {engine.submitted_today()} / {settings.daily_cap}")
+
+
+@app.command()
+def check() -> None:
+    """Validate your profile and settings."""
+    problems = validate(load_profile())
+    for p in problems:
+        typer.echo(f"profile: {p}")
+    from . import llm
+    typer.echo(f"LLM: {'ready (' + settings.model + ')' if llm.available() else 'ANTHROPIC_API_KEY not set (no tailoring, no open-ended answers)'}")
+    typer.echo(f"Review before submit: {settings.review_before_submit} | auto-approve résumé: {settings.auto_approve_resume}")
+    typer.echo("Profile OK." if not problems else f"{len(problems)} profile problem(s).")
+
+
+@app.command()
+def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Start the dashboard at http://127.0.0.1:8000"""
+    import uvicorn
+    uvicorn.run("autoapply.api:app", host=host, port=port)
+
+
+if __name__ == "__main__":
+    app()
