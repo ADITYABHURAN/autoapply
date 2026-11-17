@@ -21,7 +21,8 @@ EXTRACT_JS = r"""
     return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 1 && r.height > 1;
   };
   const raw = el => (el ? (el.innerText || el.textContent || '') : '').replace(/\s+/g, ' ').trim();
-  const clean = t => (t || '').replace(/\s+/g, ' ').replace(/[\s*]+$/, '').replace(/\(required\)$/i, '').trim();
+  const clean = t => (t || '').replace(/✱/g, ' ').replace(/\s+/g, ' ').replace(/[\s*]+$/, '').replace(/\(required\)$/i, '').trim();
+  let lastLabelEl = null;  // element the most recent label text came from (its class can mark "required")
   const LABELISH = 'label, legend, [class*="label" i], [class*="question" i], [class*="title" i]';
   const CONTROLS = 'input:not([type=hidden]), textarea, select, button';
 
@@ -32,12 +33,13 @@ EXTRACT_JS = r"""
         if (skip.some(s => cand === s || cand.contains(s) || s.contains(cand))) continue;
         if (cand.querySelector(CONTROLS)) continue;
         const t = raw(cand);
-        if (t && t.length < 400) return t;
+        if (t && t.length < 400) { lastLabelEl = cand; return t; }
       }
     }
     return '';
   };
   const labelOf = el => {
+    lastLabelEl = (el.labels && el.labels[0]) || el.closest('label') || null;
     const lb = el.getAttribute('aria-labelledby');
     if (lb) { const t = lb.split(/\s+/).map(i => raw(document.getElementById(i))).join(' ').trim(); if (t) return t; }
     if (el.labels && el.labels.length) { const t = raw(el.labels[0]); if (t) return t; }
@@ -57,7 +59,18 @@ EXTRACT_JS = r"""
     const skip = els.flatMap(e => [e, ...(e.labels ? [...e.labels] : []), e.closest('label')].filter(Boolean));
     return nearbyLabel(anc, skip) || (anc && anc.getAttribute('aria-label')) || els[0].name || '';
   };
-  const isReq = (el, labelRaw) => el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$|\(required\)/i.test(labelRaw);
+  const reqLabel = labelRaw => /\*\s*$|✱|\(required\)/i.test(labelRaw) || !!(lastLabelEl && /required/i.test(lastLabelEl.getAttribute('class') || ''));
+  const isReq = (el, labelRaw) => el.required || el.getAttribute('aria-required') === 'true' || reqLabel(labelRaw);
+  // Upload widgets label the button ("Attach", "Upload File"), not the question; look at the enclosing group first.
+  const fileLabel = el => {
+    const grp = el.closest('[role="group"][aria-labelledby]');
+    if (grp) { const t = raw(document.getElementById(grp.getAttribute('aria-labelledby'))); if (t) { lastLabelEl = null; return t; } }
+    const l = labelOf(el);
+    const m = l.match(/^(.*?)\s*✱?\s*(attach|upload)\b.*$/i);
+    if (m && m[1]) return m[1] + (l.includes('✱') ? ' *' : '');
+    if (/^(attach|upload|choose|browse)\b/i.test(l) || !l) return nearbyLabel(el.parentElement && el.parentElement.parentElement, [el]) || el.id || el.name || l;
+    return l;
+  };
 
   const out = [], groups = {};
   for (const el of root.querySelectorAll('input, textarea, select')) {
@@ -65,7 +78,8 @@ EXTRACT_JS = r"""
     if (['hidden', 'submit', 'button', 'reset', 'image', 'search'].includes(type)) continue;
     if (el.disabled || el.getAttribute('aria-hidden') === 'true') continue;
     if (type === 'file') {
-      const l = labelOf(el);
+      if (el.closest('[class*="autofill" i]')) continue;  // "autofill from resume" helpers are not form fields
+      const l = fileLabel(el);
       out.push({id: tag(el), kind: 'file', label: clean(l), required: isReq(el, l), options: [], accept: el.accept || ''});
       continue;
     }
@@ -90,14 +104,16 @@ EXTRACT_JS = r"""
     if (!shown.length) continue;
     const isRadio = key.startsWith('radio:');
     if (!isRadio && shown.length === 1) {
+      lastLabelEl = null;
       const l = optionLabel(shown[0]);
       out.push({id: tag(shown[0]), kind: 'checkbox', label: clean(l), required: isReq(shown[0], l), options: [], value: shown[0].checked ? 'true' : ''});
       continue;
     }
+    lastLabelEl = null;
     const l = groupLabel(shown);
     out.push({
       id: tag(shown[0]), kind: isRadio ? 'radio' : 'checkbox_group', label: clean(l),
-      required: shown.some(e => isReq(e, l)), options: shown.map(e => clean(optionLabel(e))),
+      required: reqLabel(l) || shown.some(e => e.required || e.getAttribute('aria-required') === 'true'), options: shown.map(e => clean(optionLabel(e))),
       option_ids: shown.map(tag), value: shown.filter(e => e.checked).map(e => clean(optionLabel(e))).join('; '),
     });
   }
@@ -110,8 +126,9 @@ EXTRACT_JS = r"""
     const btns = [...box.querySelectorAll(':scope > button')].filter(vis);
     if (btns.length < 2 || btns.length > 4) continue;
     seen.add(box);
+    lastLabelEl = null;
     const l = nearbyLabel(box.parentElement, btns);
-    out.push({id: tag(box), kind: 'button_group', label: clean(l), required: /\*\s*$/.test(l), options: btns.map(raw), option_ids: btns.map(tag), value: ''});
+    out.push({id: tag(box), kind: 'button_group', label: clean(l), required: reqLabel(l), options: btns.map(raw), option_ids: btns.map(tag), value: ''});
   }
   return out;
 }

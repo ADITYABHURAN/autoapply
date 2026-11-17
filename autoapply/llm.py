@@ -45,7 +45,7 @@ def _complete_anthropic(system: str, user: str, max_tokens: int) -> str:
     return "".join(block.text for block in msg.content if block.type == "text")
 
 
-def _complete_gemini(system: str, user: str, max_tokens: int) -> str:
+def _complete_gemini(system: str, user: str, max_tokens: int, json_mode: bool = False) -> str:
     import time
 
     import httpx
@@ -54,6 +54,8 @@ def _complete_gemini(system: str, user: str, max_tokens: int) -> str:
     body = {"system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {"maxOutputTokens": max_tokens}}
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
     # Free tier: per-minute limits (429) and occasional overload (503) are normal; wait and retry.
     for attempt in range(4):
         r = httpx.post(url, headers={"x-goog-api-key": settings.gemini_api_key}, json=body, timeout=90)
@@ -76,12 +78,12 @@ def _complete_gemini(system: str, user: str, max_tokens: int) -> str:
     return "".join(p.get("text", "") for p in parts if not p.get("thought"))
 
 
-def complete(system: str, user: str, max_tokens: int = 4000) -> str:
+def complete(system: str, user: str, max_tokens: int = 4000, json_mode: bool = False) -> str:
     if not available():
         raise LLMUnavailable(
             "No LLM key set. Put ANTHROPIC_API_KEY or GEMINI_API_KEY in your .env "
             "(Gemini has a free tier: https://aistudio.google.com/apikey)")
-    return _complete_anthropic(system, user, max_tokens) if provider() == "anthropic" else _complete_gemini(system, user, max_tokens)
+    return _complete_anthropic(system, user, max_tokens) if provider() == "anthropic" else _complete_gemini(system, user, max_tokens, json_mode)
 
 
 def extract_json(text: str):
@@ -96,4 +98,4 @@ def extract_json(text: str):
 
 
 def complete_json(system: str, user: str, max_tokens: int = 4000):
-    return extract_json(complete(system, user, max_tokens))
+    return extract_json(complete(system, user, max_tokens, json_mode=True))

@@ -75,6 +75,8 @@ def score_job(job: Job, profile: dict[str, Any]) -> tuple[int, dict]:
     score = round(45 * title_fit + 40 * skill_fit + 15 * loc_fit)
     if title_fit == 0:
         score = min(score, 35)  # right skills, wrong job family
+    elif title_fit < 0.6:
+        score = min(score, 55)  # shares only a generic word ("Engineer") with your target titles
     return score, reasons
 
 

@@ -36,6 +36,8 @@ paragraph for "why this company" questions. Then:
 
 ```bash
 autoapply check                    # validates the profile
+autoapply llm-test                 # one real call to confirm your API key works
+autoapply companies-update         # add the built-in company list (175 boards) to data/companies.yaml
 autoapply discover                 # pull and score jobs
 autoapply serve                    # dashboard at http://127.0.0.1:8000
 ```
@@ -95,7 +97,7 @@ A required field with no answer pauses the application instead of submitting.
 - **Tested against a local fixture form, not yet against live employer forms.** Expect to tune selectors in `apply/adapters.py` on the first real Greenhouse, Lever and Ashby runs.
 - **CAPTCHAs are not bypassed.** With the browser visible, the engine waits for you to solve one; headless, the application is marked "needs you".
 - **No account-wall ATSes yet** (Workday, iCIMS, Taleo). The form reader is generic, so adding one is an adapter plus a login step.
-- The company slugs in the seed list are unverified; `autoapply discover` reports any that fail.
+- The company slugs in the seed list were checked against the live job feeds in November 2026; `autoapply discover` reports any that later fail.
 - Some employers' terms restrict automated applications. That's your call per employer; the daily cap and review gates default to conservative.
 
 ## Layout

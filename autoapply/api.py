@@ -248,7 +248,11 @@ def get_profile() -> dict:
 def save_profile(body: dict[str, Any]) -> dict:
     settings.profile_path.parent.mkdir(parents=True, exist_ok=True)
     settings.profile_path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
-    return {"ok": True, "problems": validate(body)}
+    problems = validate(body)
+    if not problems:
+        from . import matching
+        matching.score_all()  # new target titles/locations take effect immediately
+    return {"ok": True, "problems": problems}
 
 
 @app.get("/api/state")

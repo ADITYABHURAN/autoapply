@@ -137,6 +137,39 @@ def check() -> None:
     typer.echo("Profile OK." if not problems else f"{len(problems)} profile problem(s).")
 
 
+@app.command("companies-update")
+def companies_update() -> None:
+    """Add companies from the built-in list to your data/companies.yaml (keeps everything already there)."""
+    import yaml
+    from pathlib import Path
+    seed = yaml.safe_load((Path(__file__).parent / "companies.seed.yaml").read_text()) or {}
+    mine = (yaml.safe_load(settings.companies_path.read_text()) if settings.companies_path.exists() else None) or {}
+    added = 0
+    for ats, names in seed.items():
+        have = {str(n) for n in mine.setdefault(ats, [])}
+        new = [n for n in names if str(n) not in have]
+        mine[ats] += new
+        added += len(new)
+    settings.companies_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.companies_path.write_text(yaml.safe_dump(mine, sort_keys=False))
+    typer.echo(f"Added {added} companies; now watching {sum(len(v) for v in mine.values())}. Run `autoapply discover` next.")
+
+
+@app.command("llm-test")
+def llm_test() -> None:
+    """Make one real LLM call to confirm your API key works."""
+    from . import llm
+    if not llm.available():
+        typer.echo("No ANTHROPIC_API_KEY or GEMINI_API_KEY in .env")
+        raise typer.Exit(1)
+    try:
+        reply = llm.complete("Reply with exactly one word.", "Say: ready", max_tokens=200).strip()
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"LLM call failed ({llm.provider()}, {llm.model()}): {e}")
+        raise typer.Exit(1)
+    typer.echo(f"LLM OK ({llm.provider()}, {llm.model()}): {reply}")
+
+
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Start the dashboard at http://127.0.0.1:8000"""

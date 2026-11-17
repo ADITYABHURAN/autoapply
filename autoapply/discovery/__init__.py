@@ -61,6 +61,12 @@ def _is_remote(*texts: str) -> bool:
     return any("remote" in (t or "").lower() for t in texts)
 
 
+def greenhouse_apply_url(token: str, job_id) -> str:
+    """The Greenhouse-hosted form. The plain board URL redirects to the company's own site for
+    companies that embed the form in an iframe there (Stripe, Databricks...); this one never does."""
+    return f"https://job-boards.greenhouse.io/embed/job_app?for={token}&token={job_id}"
+
+
 def fetch_greenhouse(token: str, client: httpx.Client) -> list[Posting]:
     r = client.get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs", params={"content": "true"})
     r.raise_for_status()
@@ -71,7 +77,7 @@ def fetch_greenhouse(token: str, client: httpx.Client) -> list[Posting]:
             ats="greenhouse", company=token, external_id=str(j["id"]), title=j.get("title", "").strip(),
             location=loc, remote=_is_remote(loc, j.get("title", "")),
             url=j.get("absolute_url", ""),
-            apply_url=f"https://job-boards.greenhouse.io/{token}/jobs/{j['id']}",
+            apply_url=greenhouse_apply_url(token, j["id"]),
             description=strip_html(j.get("content", "")),
             posted_at=_parse_dt(j.get("first_published") or j.get("updated_at")),
         ))

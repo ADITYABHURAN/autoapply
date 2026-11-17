@@ -38,7 +38,7 @@ ADAPTERS = {
     ),
     "ashby": Adapter(
         name="ashby",
-        form_root='[class*="ashby-application-form"], form',
+        form_root='.ashby-application-form-container, form',
         open_form=['#job-application-form', 'a:has-text("Application"):visible'],
         submit=['button.ashby-application-form-submit-button', 'button:has-text("Submit Application"):visible', *GENERIC_SUBMIT],
     ),

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 import yaml
@@ -32,6 +32,7 @@ class Context:
     resume_pdf: str = ""
     cover_letter: str = ""
     cover_letter_pdf: str = ""
+    warnings: list = field(default_factory=list)  # shown in the activity log
 
 
 @dataclass
@@ -114,6 +115,8 @@ def _rules() -> list[Rule]:
          lambda c, f: c.profile["preferences"].get("salary_expectation") or None),
         (R(r"start date|when (can|could) you start|notice period|earliest.*start|available to start"), ("text", "textarea"),
          lambda c, f: c.profile["preferences"].get("start_date") or None),
+        (R(r"(on-?site|in-?person|in[- ]office|hybrid|from (the|our|an) office|days? (a|per) week in)"), None,
+         lambda c, f: _yn(c.profile["preferences"].get("open_to_onsite", True)) if f.options else None),
         (R(r"relocat"), None, lambda c, f: _yn(c.profile["preferences"].get("willing_to_relocate")) if f.options else None),
         (R(r"how did you (hear|find|learn)|source of (application|referral)"), None,
          lambda c, f: (choose_option(f.options, "Company website") or choose_option(f.options, "Careers page")
@@ -148,28 +151,40 @@ def rule_answer(f: Field, ctx: Context) -> Any:
     return None
 
 
-LLM_SYSTEM = """You fill job application form fields for a candidate, using only the facts in their profile.
+LLM_SYSTEM = """You fill job application form fields for a candidate. Answer EVERY field you can; the candidate reviews all answers before anything is submitted.
 Rules:
 - For fields with "options", the value MUST be copied exactly from the options list (for checkbox_group, a list of options).
-- For free-text questions, write a specific, concise answer in first person (2-5 sentences unless the question asks for more). Use only real experience from the profile. Never invent employers, degrees, certifications, clearances, numbers or years of experience.
-- Yes/no questions about skills or experience: answer Yes only if the profile supports it.
-- If the profile does not contain the fact and the field is optional, use null. If required and you cannot answer truthfully, use null as well; a human will fill it in.
-- Never answer demographic questions; use null.
+- Free-text questions ("Why this company?", "Describe a project...", "Anything else?"): write a specific, concise first-person answer (2-5 sentences unless the question asks for more), tying the candidate's real experience to this job and company. Use the job description for what the company does.
+- Facts about the candidate (employers, degrees, certifications, clearances, years of experience, numbers, links) come ONLY from the profile and its extra_facts. Never invent them.
+- Yes/no questions about a skill or experience: Yes only if the profile supports it. Years-of-experience questions: compute from the experience dates.
+- Acknowledgements, consents and policy agreements the form requires (privacy notice, arbitration agreement, AI-use policy, "I certify the above is true"): choose the affirmative/acknowledging option.
+- "Have you worked/interviewed here before?", "Do you have relatives here?", "Are you subject to a non-compete?": answer No unless the profile says otherwise.
+- Logistics (start date, notice period, timelines, work location) come from preferences and personal location; if nothing is stated, give a short reasonable answer such as "No constraints".
+- Use null ONLY for: demographic questions (gender, race, veteran, disability), a link/ID/number the profile does not contain, or a puzzle/assessment you cannot actually solve.
 Return JSON only: {"<field id>": <value or null>, ...}"""
 
+RETRY_NOTE = """
 
-def llm_answers(fields: list[Field], ctx: Context) -> dict[str, Any]:
-    if not fields or not llm.available():
+These REQUIRED fields were left unanswered on the first pass. Answer each one now with your best truthful answer, following the rules above. Use null only if answering would require inventing a fact about the candidate."""
+
+
+def llm_answers(fields: list[Field], ctx: Context, note: str = "") -> dict[str, Any]:
+    if not fields:
+        return {}
+    if not llm.available():
+        ctx.warnings.append(f"{len(fields)} question(s) need an LLM key (GEMINI_API_KEY or ANTHROPIC_API_KEY) to be answered")
         return {}
     spec = [{"id": f.id, "label": f.label, "kind": f.kind, "required": f.required,
              **({"options": f.options[:80]} if f.options else {}),
              **({"maxlength": f.maxlength} if f.maxlength else {})} for f in fields]
     profile = {k: v for k, v in ctx.profile.items() if k not in ("eeo", "base_resume_pdf")}
     user = (f"JOB: {ctx.job_title} at {ctx.company}\n\nJOB DESCRIPTION (excerpt):\n{ctx.description[:5000]}\n\n"
-            f"CANDIDATE PROFILE:\n{yaml.safe_dump(profile, sort_keys=False)}\n\nFIELDS:\n{json.dumps(spec, indent=1)}")
+            f"CANDIDATE PROFILE:\n{yaml.safe_dump(profile, sort_keys=False, allow_unicode=True)}\n\n"
+            f"FIELDS:\n{json.dumps(spec, indent=1)}{note}")
     try:
-        reply = llm.complete_json(LLM_SYSTEM, user, max_tokens=4000)
-    except Exception:
+        reply = llm.complete_json(LLM_SYSTEM, user, max_tokens=6000)
+    except Exception as e:  # noqa: BLE001 - quota or network trouble must not sink the form
+        ctx.warnings.append(f"LLM could not answer {len(fields)} question(s): {str(e).splitlines()[0][:200]}")
         return {}
     return reply if isinstance(reply, dict) else {}
 
@@ -226,6 +241,14 @@ def resolve(fields: list[Field], ctx: Context, approved: dict[str, Any] | None =
             value = _valid(a.field, reply.get(a.field.id))
             if value is not None:
                 a.value, a.source = value, "llm"
+        # One more try for required questions it skipped.
+        skipped = [a for a in pending if a.value is None and a.field.required]
+        if skipped and reply:
+            retry = llm_answers([a.field for a in skipped], ctx, note=RETRY_NOTE)
+            for a in skipped:
+                value = _valid(a.field, retry.get(a.field.id))
+                if value is not None:
+                    a.value, a.source = value, "llm"
     return answers
 
 

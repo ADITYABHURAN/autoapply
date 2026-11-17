@@ -236,3 +236,61 @@ def test_gemini_provider(monkeypatch):
     assert llm.provider() == "gemini" and llm.available()
     assert llm.complete_json("sys", "hi") == {"a": 1}
     assert "gemini-3.5-flash-lite:generateContent" in seen["url"] and seen["key"] == "k" and seen["system"] == "sys"
+
+
+def test_labels_on_real_ats_markup():
+    """Label/required detection against markup copied from live Ashby, Lever and Greenhouse forms."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.apply.adapters import get_adapter
+    from autoapply.apply.browser import launch_kwargs
+    from autoapply.apply.forms import extract_fields
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(**{**launch_kwargs(), "headless": True})
+        page = browser.new_page()
+        page.goto((Path(__file__).parent / "fixtures" / "ats_labels.html").as_uri())
+        got = {(f.kind, f.label): f.required for f in extract_fields(page, get_adapter("ashby").form_root, probe_comboboxes=False)}
+        browser.close()
+    assert got == {
+        ("file", "Resume"): True,
+        ("button_group", "Do you have 7 years of experience?"): True,
+        ("button_group", "Open to relocation?"): False,
+        ("file", "Resume/CV"): True,          # Lever: "Resume/CV ✱ ATTACH RESUME/CV"
+        ("text", "Full name"): True,
+        ("radio", "Are you authorized to work?"): True,
+        ("file", "Cover Letter"): False,     # Greenhouse: button says "Attach", group names the question
+    }, got
+
+
+def test_llm_answers_every_question(monkeypatch):
+    """Open questions go to the LLM; required ones it skips get a second pass; failures are reported, not hidden."""
+    from autoapply import llm
+    from autoapply.apply import answers as ans
+    from autoapply.apply.forms import Field
+    from autoapply.profile import TEMPLATE
+    import yaml
+
+    profile = yaml.safe_load(TEMPLATE)
+    fields = [Field(id="a1", kind="textarea", label="Why do you want to work here?", required=True),
+              Field(id="a2", kind="select", label="Agreement to Arbitrate", required=True, options=["I acknowledge", "I decline"]),
+              Field(id="a3", kind="radio", label="Are you open to working in-person 3 days a week?", required=True, options=["Yes", "No"])]
+    calls = []
+
+    def fake(system, user, max_tokens=0):
+        calls.append(user)
+        return {"a1": "Because of X."} if len(calls) == 1 else {"a2": "I acknowledge"}
+
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "complete_json", fake)
+    ctx = ans.Context(profile=profile, job_title="AI Engineer", company="acme")
+    got = {a.field.id: (a.value, a.source) for a in ans.resolve(fields, ctx)}
+    assert got == {"a1": ("Because of X.", "llm"), "a2": ("I acknowledge", "llm"), "a3": ("Yes", "rule")}
+    assert len(calls) == 2 and "REQUIRED" in calls[1] and '"a1"' not in calls[1]
+
+    def boom(*a, **k):
+        raise llm.LLMUnavailable("Gemini error 429 (free-tier quota used up for now; it resets daily): quota")
+
+    monkeypatch.setattr(llm, "complete_json", boom)
+    ans.resolve(fields[:1], ctx)
+    assert ctx.warnings and "429" in ctx.warnings[0]

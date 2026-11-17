@@ -133,8 +133,10 @@ def _open_form(page, adapter: Adapter) -> list[Field]:
     return fields or extract_fields(page, None)
 
 
-def _fill_all(page, fields: list[Field], ctx: ans.Context, approved: dict, use_llm: bool) -> list[ans.Answer]:
+def _fill_all(page, fields: list[Field], ctx: ans.Context, approved: dict, use_llm: bool, log: Log = print) -> list[ans.Answer]:
     results = ans.resolve(fields, ctx, approved, use_llm=use_llm)
+    while ctx.warnings:
+        log("  ! " + ctx.warnings.pop(0))
     for a in results:
         if a.value is None:
             continue
@@ -227,6 +229,9 @@ def run_form(app_id: int, submit: bool, log: Log = print) -> None:
         job = app.job
         adapter = get_adapter(job.ats)
         url, title, company = job.apply_url, job.title, job.company
+        if job.ats == "greenhouse" and "/embed/job_app" not in url and job.external_id.isdigit():
+            from .discovery import greenhouse_apply_url
+            url = greenhouse_apply_url(job.company, job.external_id)  # jobs discovered before this fix
         # Carry forward what you edited and what the LLM wrote; profile-derived answers are recomputed.
         approved = {r["key"]: r["value"] for r in (app.answers or [])
                     if r.get("value") not in (None, "", []) and r.get("kind") != "file"
@@ -254,13 +259,13 @@ def run_form(app_id: int, submit: bool, log: Log = print) -> None:
         if not fields:
             raise RuntimeError("No application form found on the page")
         # On the submit pass every answer was already approved, so the LLM is not consulted again.
-        results = _fill_all(page, fields, ctx, approved, use_llm=not submit)
+        results = _fill_all(page, fields, ctx, approved, use_llm=not submit, log=log)
 
         # Some answers reveal follow-up questions; pick those up in a second pass.
         seen = {f.id for f in fields}
         extra = [f for f in extract_fields(page, adapter.form_root) if f.id not in seen]
         if extra:
-            results += _fill_all(page, extra, ctx, approved, use_llm=not submit)
+            results += _fill_all(page, extra, ctx, approved, use_llm=not submit, log=log)
 
         receipts = [a.receipt() for a in results]
         missing = [r["label"] or r["kind"] for r in receipts if r["required"] and (r["value"] in (None, "", []) or r["ok"] is False)]

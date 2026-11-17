@@ -49,6 +49,11 @@ preferences:
   salary_expectation: ""     # used only when a form asks
   start_date: "Immediately"
   willing_to_relocate: true
+  open_to_onsite: true       # in-office / hybrid questions
+
+# Anything else forms tend to ask. Plain sentences; the AI uses these facts when answering questions.
+# e.g. "I have not worked or interviewed at any company I'm applying to." / "I can start two weeks after an offer."
+extra_facts: []
 
 summary: ""
 

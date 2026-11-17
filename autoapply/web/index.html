@@ -323,10 +323,15 @@ function renderProfile(problems) {
       <div class="grid2">
         ${row('preferences.remote_ok', 'Remote OK', {checkbox: true})}
         ${row('preferences.willing_to_relocate', 'Willing to relocate', {checkbox: true})}
+        ${row('preferences.open_to_onsite', 'Open to on-site / hybrid', {checkbox: true})}
         ${row('preferences.max_years_experience', 'Max years of experience asked for', {number: true})}
         ${row('preferences.start_date', 'Availability / start date')}
         ${row('preferences.salary_expectation', 'Salary expectation (optional)')}
       </div>
+    </fieldset>
+
+    <fieldset><legend>Extra facts for application questions</legend>
+      ${chipList('extra_facts', 'Facts the AI may use when a form asks something your résumé does not cover', 'e.g. I have never worked or interviewed at these companies, then Enter')}
     </fieldset>
 
     <fieldset><legend>Summary</legend>${row('summary', '', {textarea: true, rows: 3, placeholder: 'One or two sentences about you.'})}</fieldset>
