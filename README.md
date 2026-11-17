@@ -37,8 +37,8 @@ paragraph for "why this company" questions. Then:
 ```bash
 autoapply check                    # validates the profile
 autoapply llm-test                 # one real call to confirm your API key works
-autoapply focus                    # target ~55 less crowded roles (solutions, support, IT, QA...) and drop other stored jobs
-autoapply companies-update         # add the built-in company list (175 boards) to data/companies.yaml
+autoapply focus                    # IT / help desk / technical support roles at ~290 small and mid-size companies; drops other stored jobs
+autoapply companies-update         # add any new built-in companies to data/companies.yaml
 autoapply discover                 # pull and score jobs
 autoapply serve                    # dashboard at http://127.0.0.1:8000
 ```

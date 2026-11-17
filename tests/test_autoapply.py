@@ -304,28 +304,39 @@ def test_only_targeted_roles_are_stored_and_prune():
     from autoapply.profile import UNSATURATED_TITLES
 
     prefs = {"titles": UNSATURATED_TITLES, "exclude_keywords": ["Staff", "Manager"]}
-    keep = ["Forward Deployed Engineer, AI", "Technical Support Engineer II", "IT Support Specialist",
-            "Senior Solutions Engineer", "Help Desk Technician", "QA Engineer"]
-    drop = ["Software Engineer", "Machine Learning Engineer", "Account Executive", "Staff Solutions Engineer",
-            "Mechanical Engineer", "Product Designer", "Engineering Manager", "Recruiter"]
+    keep = ["Help Desk Technician", "IT Help Desk Support / End User Support", "IT Support Specialist", "User Support Analyst",
+            "Desktop Support Engineer / IT", "Technical Support Specialist II", "Technical Support Engineer - Building Automation",
+            "Application Support Specialist", "Data Center Technician 1", "IT Field Technician", "IT Operations Specialist",
+            "Senior Help Desk Technician", "Customer Support Engineer", "Mobile Device Support Technician"]
+    drop = ["Software Engineer", "Machine Learning Engineer", "Account Executive", "Forward Deployed Engineer",
+            "Solutions Engineer", "Mechanical Engineer", "Product Designer", "Engineering Manager", "Recruiter",
+            "IT Support Manager", "Staff Support Engineer", "Sales Engineer", "Data Scientist", "Product Marketing Specialist"]
     assert [t for t in keep if not matching.title_targeted(t, prefs)] == []
     assert [t for t in drop if matching.title_targeted(t, prefs)] == []
 
     with session() as s:
-        s.add(Job(ats="lever", company="prune-co", external_id="keep", title="Solutions Engineer", location="", url="", apply_url=""))
+        s.add(Job(ats="lever", company="prune-co", external_id="keep", title="IT Support Specialist", location="", url="", apply_url=""))
         s.add(Job(ats="lever", company="prune-co", external_id="drop", title="Account Executive", location="", url="", apply_url=""))
+        s.add(Job(ats="lever", company="big-co", external_id="unwatched", title="IT Support Specialist", location="", url="", apply_url=""))
     import yaml
     from autoapply.config import settings
     profile = yaml.safe_load(settings.profile_path.read_text(encoding="utf-8"))
     old = profile["preferences"]["titles"]
-    profile["preferences"]["titles"] = ["Solutions Engineer", "ML Engineer"]
+    profile["preferences"]["titles"] = ["IT Support Specialist"]
     settings.profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    had = settings.companies_path.read_text(encoding="utf-8") if settings.companies_path.exists() else None
+    settings.companies_path.write_text("lever:\n  - prune-co\n", encoding="utf-8")
     try:
-        assert matching.prune() >= 1
+        assert matching.prune() >= 2
         with session() as s:
             left = {j.external_id for j in s.scalars(select(Job).where(Job.company == "prune-co")).all()}
-        assert left == {"keep"}
+            gone = s.scalars(select(Job).where(Job.company == "big-co")).all()
+        assert left == {"keep"} and gone == []
     finally:
+        if had is None:
+            settings.companies_path.unlink()
+        else:
+            settings.companies_path.write_text(had, encoding="utf-8")
         profile["preferences"]["titles"] = old
         settings.profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
 

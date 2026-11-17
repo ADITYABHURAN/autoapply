@@ -40,7 +40,7 @@ eeo:
   disability: "I do not wish to answer"
 
 preferences:
-  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]  # `autoapply focus` sets ~55 less crowded roles
+  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]  # `autoapply focus` sets ~50 IT / help desk / technical support titles
   keywords: []               # nice-to-have words in the description
   exclude_keywords: ["Staff", "Principal", "Director", "Manager", "Clearance"]
   locations: ["New York", "New Jersey", "Remote"]
@@ -111,31 +111,32 @@ def load_profile(path: Path | None = None) -> dict[str, Any]:
     return profile
 
 
-# Less crowded roles a CS/AI-ML grad with Python, SQL, cloud and data-pipeline experience fits.
-# These want engineering skills but draw far fewer applicants than "Software Engineer" postings.
-# This is the default focus of the board: only jobs matching your titles are stored.
+# The board's default focus: IT support, help desk and technical support roles. They draw far
+# fewer applicants than engineering postings, and a CS grad is a strong candidate for them.
+# Only jobs matching your titles are stored.
 UNSATURATED_TITLES = [
-    # customer-facing engineering
-    "Forward Deployed Engineer", "Solutions Engineer", "AI Solutions Engineer", "Solutions Architect",
-    "Customer Engineer", "Implementation Engineer", "Integration Engineer", "Deployment Engineer",
-    "Technical Consultant", "Sales Engineer", "Developer Relations Engineer", "Developer Advocate",
-    "Applied AI Specialist", "AI Deployment Strategist", "Partner Engineer", "Field Engineer",
-    "Professional Services Engineer", "Onboarding Engineer", "Technical Solutions Consultant",
-    # support engineering
-    "Technical Support Engineer", "Support Engineer", "Product Support Engineer", "Customer Support Engineer",
-    "Cloud Support Engineer", "Escalation Engineer", "Technical Support Specialist", "Product Specialist",
-    "Customer Success Engineer", "Developer Support Engineer", "API Support Engineer",
-    # IT
-    "IT Support Specialist", "IT Support Engineer", "Help Desk Technician", "Service Desk Analyst",
-    "IT Engineer", "Systems Administrator", "Desktop Support Technician", "IT Operations Analyst",
-    "IT Specialist", "IT Administrator",
-    # quality / automation / operations
-    "QA Engineer", "Software Engineer in Test", "Automation Engineer", "Test Engineer",
-    "Release Engineer", "Technical Operations Engineer", "Production Support Engineer",
-    # niche data / AI
-    "Fraud Analyst", "Risk Analyst", "Data Quality Engineer", "AI Evaluation Engineer",
-    "Data Operations Analyst", "AI Trainer", "Prompt Engineer", "Trust and Safety Analyst",
+    # help desk / service desk
+    "Help Desk Technician", "Help Desk Engineer", "Help Desk Analyst", "Help Desk Support Specialist",
+    "IT Help Desk", "Service Desk Analyst", "Service Desk Technician", "Service Desk Engineer",
+    # IT support
+    "IT Support Specialist", "IT Support Engineer", "IT Support Analyst", "IT Support Technician",
+    "IT Specialist", "IT Technician", "IT Associate", "IT Analyst", "IT Engineer", "IT Administrator",
+    "IT Operations Specialist", "IT Operations Analyst", "IT Operations Engineer", "IT Systems Engineer",
+    "Systems Administrator", "User Support Analyst", "End User Support", "Workplace Technology Specialist",
+    # desktop / device / field
+    "Desktop Support Technician", "Desktop Support Engineer", "Mobile Device Support Technician",
+    "IT Field Technician", "Field Service Technician", "Field Support Specialist",
+    # technical / application / product support
+    "Technical Support Specialist", "Technical Support Engineer", "Technical Support Analyst", "Technical Support",
+    "Application Support Specialist", "Application Support Analyst", "Application Support Engineer",
+    "Product Support Specialist", "Product Support Engineer", "Customer Support Engineer", "Support Engineer",
+    "Support Specialist", "Cloud Support Engineer", "Production Support Analyst",
+    # network / data center
+    "Network Support Technician", "NOC Technician", "Data Center Technician",
 ]
+
+# Extra title words to exclude for this focus (support roles that are not technical).
+FOCUS_EXCLUDES = ["Forward Deployed", "Sales", "Legal", "Clinical", "Billing", "Payroll"]
 
 # The crowded core roles. Not targeted unless you ask: `autoapply focus --include-core`.
 CORE_TITLES = [

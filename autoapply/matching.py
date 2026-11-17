@@ -18,6 +18,10 @@ _YEARS = re.compile(r"(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?(?:years|yrs)", re.I)
 _STOP = {"and", "of", "the", "a", "i", "ii", "iii", "sr", "senior", "junior", "jr", "new", "grad"}
 
 
+_GENERIC = {"engineer", "specialist", "analyst", "technician", "associate", "administrator", "developer",
+            "product", "customer", "technical", "operations", "services", "service", "user", "level", "tier"}
+
+
 def _tokens(text: str) -> set[str]:
     return set(_WORD.findall(text.lower())) - _STOP
 
@@ -36,8 +40,10 @@ def title_fit(title: str, prefs: dict[str, Any]) -> float:
     job_tokens, best = _tokens(title), 0.0
     for target in prefs.get("titles") or []:
         t = _tokens(target)
-        if t:
-            best = max(best, len(t & job_tokens) / len(t))
+        shared = t & job_tokens
+        # Sharing only job-family filler ("Product ... Specialist") is not a match.
+        if t and (shared - _GENERIC or not t - _GENERIC):
+            best = max(best, len(shared) / len(t))
     return best
 
 
@@ -119,8 +125,11 @@ def prune() -> int:
     prefs = load_profile()["preferences"]
     with session() as s:
         applied = set(s.scalars(select(Application.job_id)).all())
-        rows = s.execute(select(Job.id, Job.title)).all()
-    drop = [i for i, title in rows if i not in applied and not title_targeted(title, prefs)]
+        rows = s.execute(select(Job.id, Job.title, Job.ats, Job.company)).all()
+    from .discovery import load_companies
+    watched = {(ats, str(c)) for ats, names in load_companies().items() for c in names}
+    drop = [i for i, title, ats, company in rows if i not in applied
+            and (not title_targeted(title, prefs) or (watched and (ats, company) not in watched))]
     for i in range(0, len(drop), 500):
         with session() as s:
             s.execute(delete(Job).where(Job.id.in_(drop[i:i + 500])))

@@ -156,16 +156,26 @@ def companies_update() -> None:
 
 
 @app.command()
-def focus(include_core: bool = typer.Option(False, help="Also target the crowded core roles (Software/AI/ML/Data Engineer...)")) -> None:
-    """Target the less crowded roles only, and drop every stored job that isn't one of them."""
+def focus(include_core: bool = typer.Option(False, help="Also target the crowded core roles (Software/AI/ML/Data Engineer...)"),
+          keep_companies: bool = typer.Option(False, help="Keep your current company list instead of the small/mid-size one")) -> None:
+    """Target IT / help desk / technical support roles at small and mid-size companies; drop every other stored job."""
     import yaml
-    from .profile import CORE_TITLES, UNSATURATED_TITLES
+    from .profile import CORE_TITLES, FOCUS_EXCLUDES, UNSATURATED_TITLES
     profile = load_profile()
-    profile["preferences"]["titles"] = UNSATURATED_TITLES + (CORE_TITLES if include_core else [])
+    prefs = profile["preferences"]
+    prefs["titles"] = UNSATURATED_TITLES + (CORE_TITLES if include_core else [])
+    excl = prefs.get("exclude_keywords") or []
+    prefs["exclude_keywords"] = excl + [w for w in FOCUS_EXCLUDES if w.lower() not in {e.lower() for e in excl}]
     settings.profile_path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    if not keep_companies:
+        if settings.companies_path.exists():
+            shutil.copy(settings.companies_path, settings.companies_path.with_name("companies.backup.yaml"))
+        shutil.copy(Path(__file__).parent / "companies.seed.yaml", settings.companies_path)
+    watching = sum(len(v) for v in discovery.load_companies().values())
     removed = matching.prune()
     kept = matching.score_all()
-    typer.echo(f"Targeting {len(profile['preferences']['titles'])} titles. Removed {removed} jobs outside them; {kept} kept and rescored.")
+    typer.echo(f"Targeting {len(prefs['titles'])} titles at {watching} companies. "
+               f"Removed {removed} jobs outside them; {kept} kept and rescored. Run `autoapply discover` next.")
 
 
 @app.command()
