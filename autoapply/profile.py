@@ -40,7 +40,7 @@ eeo:
   disability: "I do not wish to answer"
 
 preferences:
-  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]
+  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]  # `autoapply add-titles` adds ~50 more
   keywords: []               # nice-to-have words in the description
   exclude_keywords: ["Staff", "Principal", "Director", "Manager", "Clearance"]
   locations: ["New York", "New Jersey", "Remote"]
@@ -105,6 +105,33 @@ def load_profile(path: Path | None = None) -> dict[str, Any]:
     for key in ("skills", "experience", "education", "projects"):
         profile[key] = profile.get(key) or []
     return profile
+
+
+# Roles a CS/AI-ML grad with Python, SQL, cloud and data-pipeline experience fits, including
+# the less crowded ones next to core SWE (customer-facing engineering, support, data, infra, IT).
+SUGGESTED_TITLES = [
+    # core
+    "AI Engineer", "Applied AI Engineer", "Machine Learning Engineer", "ML Engineer", "Software Engineer",
+    "Backend Engineer", "Full Stack Engineer", "Python Developer", "Software Developer", "Data Scientist",
+    "Research Engineer", "MLOps Engineer", "ML Platform Engineer", "AI Agent Engineer", "LLM Engineer",
+    # customer-facing engineering (fewer applicants, same skills)
+    "Forward Deployed Engineer", "Solutions Engineer", "AI Solutions Engineer", "Solutions Architect",
+    "Customer Engineer", "Implementation Engineer", "Integration Engineer", "Deployment Engineer",
+    "Technical Consultant", "Sales Engineer", "Developer Relations Engineer", "Developer Advocate",
+    "Applied AI Specialist", "AI Deployment Strategist",
+    # support engineering
+    "Technical Support Engineer", "Support Engineer", "Product Support Engineer", "Customer Support Engineer",
+    "Cloud Support Engineer", "Escalation Engineer", "Technical Support Specialist",
+    # data
+    "Data Engineer", "Analytics Engineer", "Data Analyst", "Business Intelligence Engineer",
+    "Fraud Analyst", "Risk Analyst", "Data Quality Engineer", "AI Evaluation Engineer",
+    # infrastructure / reliability / quality
+    "DevOps Engineer", "Site Reliability Engineer", "Platform Engineer", "Cloud Engineer", "Infrastructure Engineer",
+    "Automation Engineer", "QA Engineer", "Software Engineer in Test", "Systems Engineer",
+    # IT
+    "IT Support Specialist", "IT Support Engineer", "Help Desk Technician", "Service Desk Analyst",
+    "IT Engineer", "Systems Administrator", "Desktop Support Technician", "IT Operations Analyst",
+]
 
 
 def validate(profile: dict[str, Any]) -> list[str]:

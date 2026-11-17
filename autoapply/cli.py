@@ -155,6 +155,20 @@ def companies_update() -> None:
     typer.echo(f"Added {added} companies; now watching {sum(len(v) for v in mine.values())}. Run `autoapply discover` next.")
 
 
+@app.command("add-titles")
+def add_titles() -> None:
+    """Add the built-in list of ~60 target titles to your profile (keeps the ones you already have), then rescore."""
+    import yaml
+    from .profile import SUGGESTED_TITLES
+    profile = load_profile()
+    titles = profile["preferences"].setdefault("titles", []) or []
+    have = {t.lower() for t in titles}
+    new = [t for t in SUGGESTED_TITLES if t.lower() not in have]
+    profile["preferences"]["titles"] = titles + new
+    settings.profile_path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True))
+    typer.echo(f"Added {len(new)} titles; targeting {len(titles) + len(new)} now. Rescored {matching.score_all()} jobs.")
+
+
 @app.command("llm-test")
 def llm_test() -> None:
     """Make one real LLM call to confirm your API key works."""
