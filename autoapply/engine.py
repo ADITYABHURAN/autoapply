@@ -103,11 +103,15 @@ def prepare(app_id: int, log: Log = print) -> None:
 def approve_resume(app_id: int, resume: dict[str, Any] | None = None, cover_letter: str | None = None) -> None:
     """Approve (optionally with edits) the tailored résumé; re-renders the PDF if edited."""
     profile = load_profile()
+    if resume is not None:
+        resume = tailor.enforce_facts(resume, profile)
+        with session() as s:
+            pdf_path = s.get(Application, app_id).resume_pdf
+        tailor.render_pdf(profile, resume, Path(pdf_path))  # slow (launches a browser): keep it out of the transaction
     with session() as s:
         app = s.get(Application, app_id)
         if resume is not None:
-            app.tailored_resume = tailor.enforce_facts(resume, profile)
-            tailor.render_pdf(profile, app.tailored_resume, Path(app.resume_pdf))
+            app.tailored_resume = resume
         if cover_letter is not None:
             app.cover_letter = cover_letter
         app.status = "ready_to_fill"

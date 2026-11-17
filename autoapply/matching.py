@@ -82,11 +82,17 @@ def score_job(job: Job, profile: dict[str, Any]) -> tuple[int, dict]:
 
 def score_all(only_unscored: bool = False) -> int:
     profile = load_profile()
+    # Score in short transactions and write only rows that changed, so a rescore of tens of
+    # thousands of jobs never holds the database lock for long.
     with session() as s:
-        q = select(Job)
+        q = select(Job.id)
         if only_unscored:
             q = q.where(Job.score.is_(None))
-        jobs = s.scalars(q).all()
-        for job in jobs:
-            job.score, job.score_reasons = score_job(job, profile)
-        return len(jobs)
+        ids = list(s.scalars(q).all())
+    for i in range(0, len(ids), 500):
+        with session() as s:
+            for job in s.scalars(select(Job).where(Job.id.in_(ids[i:i + 500]))).all():
+                score, reasons = score_job(job, profile)
+                if job.score != score or job.score_reasons != reasons:
+                    job.score, job.score_reasons = score, reasons
+    return len(ids)

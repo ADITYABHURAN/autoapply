@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from .config import settings
@@ -91,7 +91,24 @@ _Session = None
 def init_db(url: str | None = None):
     global _engine, _Session
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    _engine = create_engine(url or settings.database_url, future=True)
+    url = url or settings.database_url
+    if url.startswith("sqlite"):
+        # The dashboard, the background worker and rescoring all write. Wait for each other instead of
+        # failing with "database is locked", and let readers carry on during a write (WAL).
+        _engine = create_engine(url, future=True, connect_args={"timeout": 60})
+
+        @event.listens_for(_engine, "connect")
+        def _pragmas(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA busy_timeout=60000")
+            try:
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA synchronous=NORMAL")
+            except Exception:  # noqa: BLE001 - some network/synced folders refuse WAL; the timeout still applies
+                pass
+            cur.close()
+    else:
+        _engine = create_engine(url, future=True)
     Base.metadata.create_all(_engine)
     _Session = sessionmaker(_engine, expire_on_commit=False)
     return _engine
