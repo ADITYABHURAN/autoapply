@@ -19,6 +19,15 @@ from .db import TRACKER_STAGES, Application, Job, init_db, session
 from .profile import TEMPLATE, load_profile, validate, write_template
 
 app = FastAPI(title="AutoApply")
+
+
+@app.exception_handler(Exception)
+async def _friendly_error(request, exc):  # noqa: ANN001
+    from fastapi.responses import JSONResponse
+    msg = str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__
+    if "database is locked" in msg:
+        msg = "The database was busy. Wait a few seconds and try again."
+    return JSONResponse(status_code=500, content={"detail": msg})
 init_db()
 write_template()
 if not settings.companies_path.exists():
@@ -82,7 +91,7 @@ def _app(a: Application, full: bool = False) -> dict[str, Any]:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return (Path(__file__).parent / "web" / "index.html").read_text()
+    return (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/jobs")
@@ -247,7 +256,7 @@ def get_profile() -> dict:
 @app.post("/api/profile")
 def save_profile(body: dict[str, Any]) -> dict:
     settings.profile_path.parent.mkdir(parents=True, exist_ok=True)
-    settings.profile_path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
+    settings.profile_path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True), encoding="utf-8")
     problems = validate(body)
     if not problems:
         from . import matching

@@ -142,8 +142,8 @@ def companies_update() -> None:
     """Add companies from the built-in list to your data/companies.yaml (keeps everything already there)."""
     import yaml
     from pathlib import Path
-    seed = yaml.safe_load((Path(__file__).parent / "companies.seed.yaml").read_text()) or {}
-    mine = (yaml.safe_load(settings.companies_path.read_text()) if settings.companies_path.exists() else None) or {}
+    seed = yaml.safe_load((Path(__file__).parent / "companies.seed.yaml").read_text(encoding="utf-8")) or {}
+    mine = (yaml.safe_load(settings.companies_path.read_text(encoding="utf-8")) if settings.companies_path.exists() else None) or {}
     added = 0
     for ats, names in seed.items():
         have = {str(n) for n in mine.setdefault(ats, [])}
@@ -151,22 +151,27 @@ def companies_update() -> None:
         mine[ats] += new
         added += len(new)
     settings.companies_path.parent.mkdir(parents=True, exist_ok=True)
-    settings.companies_path.write_text(yaml.safe_dump(mine, sort_keys=False))
+    settings.companies_path.write_text(yaml.safe_dump(mine, sort_keys=False), encoding="utf-8")
     typer.echo(f"Added {added} companies; now watching {sum(len(v) for v in mine.values())}. Run `autoapply discover` next.")
 
 
-@app.command("add-titles")
-def add_titles() -> None:
-    """Add the built-in list of ~60 target titles to your profile (keeps the ones you already have), then rescore."""
+@app.command()
+def focus(include_core: bool = typer.Option(False, help="Also target the crowded core roles (Software/AI/ML/Data Engineer...)")) -> None:
+    """Target the less crowded roles only, and drop every stored job that isn't one of them."""
     import yaml
-    from .profile import SUGGESTED_TITLES
+    from .profile import CORE_TITLES, UNSATURATED_TITLES
     profile = load_profile()
-    titles = profile["preferences"].setdefault("titles", []) or []
-    have = {t.lower() for t in titles}
-    new = [t for t in SUGGESTED_TITLES if t.lower() not in have]
-    profile["preferences"]["titles"] = titles + new
-    settings.profile_path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True))
-    typer.echo(f"Added {len(new)} titles; targeting {len(titles) + len(new)} now. Rescored {matching.score_all()} jobs.")
+    profile["preferences"]["titles"] = UNSATURATED_TITLES + (CORE_TITLES if include_core else [])
+    settings.profile_path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    removed = matching.prune()
+    kept = matching.score_all()
+    typer.echo(f"Targeting {len(profile['preferences']['titles'])} titles. Removed {removed} jobs outside them; {kept} kept and rescored.")
+
+
+@app.command()
+def prune() -> None:
+    """Delete stored jobs that don't match your current target titles (applied-to jobs are kept)."""
+    typer.echo(f"Removed {matching.prune()} jobs.")
 
 
 @app.command("llm-test")

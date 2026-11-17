@@ -93,6 +93,7 @@ const api = async (path, body) => {
   return r.json();
 };
 let openApp = null;
+window.addEventListener('unhandledrejection', e => { alert('Something went wrong: ' + (e.reason && e.reason.message || e.reason)); });
 
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));

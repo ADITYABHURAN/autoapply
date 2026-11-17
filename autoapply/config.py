@@ -12,7 +12,7 @@ def _load_dotenv() -> None:
     env = ROOT / ".env"
     if not env.exists():
         return
-    for line in env.read_text().splitlines():
+    for line in env.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -30,6 +30,8 @@ def _bool(name: str, default: bool) -> bool:
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: ROOT / "data")
+    # Store only jobs whose title is one of your target roles. Keeps the database small and fast.
+    store_all_jobs: bool = field(default_factory=lambda: _bool("AUTOAPPLY_STORE_ALL_JOBS", False))
     database_url: str = field(
         default_factory=lambda: os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'autoapply.db'}")
     )

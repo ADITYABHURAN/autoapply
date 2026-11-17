@@ -31,6 +31,24 @@ def required_years(description: str) -> int | None:
     return min(years) if years else None
 
 
+def title_fit(title: str, prefs: dict[str, Any]) -> float:
+    """Best token overlap between a job title and any target title (0-1)."""
+    job_tokens, best = _tokens(title), 0.0
+    for target in prefs.get("titles") or []:
+        t = _tokens(target)
+        if t:
+            best = max(best, len(t & job_tokens) / len(t))
+    return best
+
+
+def title_targeted(title: str, prefs: dict[str, Any]) -> bool:
+    """True when a title is one of the roles you target and not excluded. Decides what gets stored."""
+    title_l = title.lower()
+    if any(_has(w, title_l) for w in prefs.get("exclude_keywords") or []):
+        return False
+    return title_fit(title, prefs) >= 0.6
+
+
 def score_job(job: Job, profile: dict[str, Any]) -> tuple[int, dict]:
     prefs = profile["preferences"]
     title_l, desc_l = job.title.lower(), (job.description or "").lower()
@@ -45,13 +63,8 @@ def score_job(job: Job, profile: dict[str, Any]) -> tuple[int, dict]:
         return 0, {"excluded": f"asks for {years}+ years"}
 
     # Title fit: best token overlap with any target title.
-    job_tokens = _tokens(job.title)
-    title_fit = 0.0
-    for target in prefs.get("titles") or []:
-        t = _tokens(target)
-        if t:
-            title_fit = max(title_fit, len(t & job_tokens) / len(t))
-    reasons["title_fit"] = round(title_fit, 2)
+    fit = title_fit(job.title, prefs)
+    reasons["title_fit"] = round(fit, 2)
 
     # Skill coverage: share of your skills the description mentions, saturating at 8 hits.
     skills = profile["skills"] + (prefs.get("keywords") or [])
@@ -72,10 +85,10 @@ def score_job(job: Job, profile: dict[str, Any]) -> tuple[int, dict]:
         loc_fit = 0.0 if wanted else 0.5
     reasons["location_fit"] = loc_fit
 
-    score = round(45 * title_fit + 40 * skill_fit + 15 * loc_fit)
-    if title_fit == 0:
+    score = round(45 * fit + 40 * skill_fit + 15 * loc_fit)
+    if fit == 0:
         score = min(score, 35)  # right skills, wrong job family
-    elif title_fit < 0.6:
+    elif fit < 0.6:
         score = min(score, 55)  # shares only a generic word ("Engineer") with your target titles
     return score, reasons
 
@@ -96,3 +109,26 @@ def score_all(only_unscored: bool = False) -> int:
                 if job.score != score or job.score_reasons != reasons:
                     job.score, job.score_reasons = score, reasons
     return len(ids)
+
+
+def prune() -> int:
+    """Delete stored jobs that are not a targeted role (jobs you applied to are always kept)."""
+    from sqlalchemy import delete, text
+
+    from .db import Application
+    prefs = load_profile()["preferences"]
+    with session() as s:
+        applied = set(s.scalars(select(Application.job_id)).all())
+        rows = s.execute(select(Job.id, Job.title)).all()
+    drop = [i for i, title in rows if i not in applied and not title_targeted(title, prefs)]
+    for i in range(0, len(drop), 500):
+        with session() as s:
+            s.execute(delete(Job).where(Job.id.in_(drop[i:i + 500])))
+    if drop:
+        from . import db
+        with db._engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            try:
+                conn.execute(text("VACUUM"))
+            except Exception:  # noqa: BLE001 - space is reclaimed later; not worth failing over
+                pass
+    return len(drop)

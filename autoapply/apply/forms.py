@@ -218,6 +218,8 @@ def choose_option(options: list[str], desired: str) -> Optional[str]:
     starts = [o for o, l in zip(options, lowered) if l.startswith(want) or want.startswith(l)]
     if len(starts) == 1:
         return starts[0]
+    if len(starts) > 1 and all(l.startswith(want) for o, l in zip(options, lowered) if o in starts):
+        return min(starts, key=len)  # "United States" -> "United States +1", not "... Minor Outlying Islands"
     contains = [o for o, l in zip(options, lowered) if want in l]
     if len(contains) == 1:
         return contains[0]

@@ -294,3 +294,40 @@ def test_llm_answers_every_question(monkeypatch):
     monkeypatch.setattr(llm, "complete_json", boom)
     ans.resolve(fields[:1], ctx)
     assert ctx.warnings and "429" in ctx.warnings[0]
+
+
+def test_only_targeted_roles_are_stored_and_prune():
+    from autoapply import matching
+    from autoapply.apply.forms import choose_option
+    from sqlalchemy import select
+
+    from autoapply.profile import UNSATURATED_TITLES
+
+    prefs = {"titles": UNSATURATED_TITLES, "exclude_keywords": ["Staff", "Manager"]}
+    keep = ["Forward Deployed Engineer, AI", "Technical Support Engineer II", "IT Support Specialist",
+            "Senior Solutions Engineer", "Help Desk Technician", "QA Engineer"]
+    drop = ["Software Engineer", "Machine Learning Engineer", "Account Executive", "Staff Solutions Engineer",
+            "Mechanical Engineer", "Product Designer", "Engineering Manager", "Recruiter"]
+    assert [t for t in keep if not matching.title_targeted(t, prefs)] == []
+    assert [t for t in drop if matching.title_targeted(t, prefs)] == []
+
+    with session() as s:
+        s.add(Job(ats="lever", company="prune-co", external_id="keep", title="Solutions Engineer", location="", url="", apply_url=""))
+        s.add(Job(ats="lever", company="prune-co", external_id="drop", title="Account Executive", location="", url="", apply_url=""))
+    import yaml
+    from autoapply.config import settings
+    profile = yaml.safe_load(settings.profile_path.read_text(encoding="utf-8"))
+    old = profile["preferences"]["titles"]
+    profile["preferences"]["titles"] = ["Solutions Engineer", "ML Engineer"]
+    settings.profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    try:
+        assert matching.prune() >= 1
+        with session() as s:
+            left = {j.external_id for j in s.scalars(select(Job).where(Job.company == "prune-co")).all()}
+        assert left == {"keep"}
+    finally:
+        profile["preferences"]["titles"] = old
+        settings.profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+    opts = ["United States Minor Outlying Islands +1", "United States +1", "United Kingdom +44"]
+    assert choose_option(opts, "United States") == "United States +1"

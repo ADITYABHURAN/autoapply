@@ -149,7 +149,7 @@ def load_companies() -> dict[str, list[str]]:
     path = settings.companies_path
     if not path.exists():
         return {}
-    data = yaml.safe_load(path.read_text()) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return {ats: list(dict.fromkeys(v or [])) for ats, v in data.items() if ats in FETCHERS}
 
 
@@ -172,17 +172,30 @@ def upsert(postings: list[Posting]) -> list[int]:
 def discover(companies: dict[str, list[str]] | None = None, log=print) -> list[int]:
     companies = companies if companies is not None else load_companies()
     new_ids: list[int] = []
+    prefs = None
+    if not settings.store_all_jobs:
+        try:
+            from ..matching import title_targeted
+            from ..profile import load_profile
+            prefs = load_profile()["preferences"]
+            if not prefs.get("titles"):
+                prefs = None
+        except Exception:  # noqa: BLE001 - no profile yet: keep everything
+            prefs = None
     with httpx.Client(headers=UA, timeout=30, follow_redirects=True) as client:
         for ats, names in companies.items():
             for name in names:
                 try:
                     postings = FETCHERS[ats](name, client)
-                except httpx.HTTPError as e:
-                    log(f"  {ats}/{name}: failed ({e})")
+                except Exception as e:  # noqa: BLE001 - one bad board (404, odd JSON) must not stop the run
+                    log(f"  {ats}/{name}: failed ({str(e).splitlines()[0][:120]})")
                     continue
+                total = len(postings)
+                if prefs is not None:
+                    postings = [p for p in postings if title_targeted(p.title, prefs)]
                 fresh = upsert(postings)
                 new_ids.extend(fresh)
-                log(f"  {ats}/{name}: {len(postings)} open, {len(fresh)} new")
+                log(f"  {ats}/{name}: {total} open, {len(postings)} match your roles, {len(fresh)} new")
     return new_ids
 
 

@@ -40,7 +40,7 @@ eeo:
   disability: "I do not wish to answer"
 
 preferences:
-  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]  # `autoapply add-titles` adds ~50 more
+  titles: ["AI Engineer", "Machine Learning Engineer", "Software Engineer"]  # `autoapply focus` sets ~55 less crowded roles
   keywords: []               # nice-to-have words in the description
   exclude_keywords: ["Staff", "Principal", "Director", "Manager", "Clearance"]
   locations: ["New York", "New Jersey", "Remote"]
@@ -91,7 +91,7 @@ def write_template(path: Path | None = None) -> Path:
     path = path or settings.profile_path
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        path.write_text(TEMPLATE)
+        path.write_text(TEMPLATE, encoding="utf-8")
     return path
 
 
@@ -99,7 +99,11 @@ def load_profile(path: Path | None = None) -> dict[str, Any]:
     path = path or settings.profile_path
     if not path.exists():
         raise FileNotFoundError(f"No profile at {path}. Run `autoapply init` and fill it in.")
-    profile = yaml.safe_load(path.read_text()) or {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:  # a file saved by an older version on Windows
+        text = path.read_text(encoding="cp1252", errors="replace")
+    profile = yaml.safe_load(text) or {}
     for key in ("personal", "work_authorization", "eeo", "preferences"):
         profile.setdefault(key, {})
     for key in ("skills", "experience", "education", "projects"):
@@ -107,30 +111,40 @@ def load_profile(path: Path | None = None) -> dict[str, Any]:
     return profile
 
 
-# Roles a CS/AI-ML grad with Python, SQL, cloud and data-pipeline experience fits, including
-# the less crowded ones next to core SWE (customer-facing engineering, support, data, infra, IT).
-SUGGESTED_TITLES = [
-    # core
-    "AI Engineer", "Applied AI Engineer", "Machine Learning Engineer", "ML Engineer", "Software Engineer",
-    "Backend Engineer", "Full Stack Engineer", "Python Developer", "Software Developer", "Data Scientist",
-    "Research Engineer", "MLOps Engineer", "ML Platform Engineer", "AI Agent Engineer", "LLM Engineer",
-    # customer-facing engineering (fewer applicants, same skills)
+# Less crowded roles a CS/AI-ML grad with Python, SQL, cloud and data-pipeline experience fits.
+# These want engineering skills but draw far fewer applicants than "Software Engineer" postings.
+# This is the default focus of the board: only jobs matching your titles are stored.
+UNSATURATED_TITLES = [
+    # customer-facing engineering
     "Forward Deployed Engineer", "Solutions Engineer", "AI Solutions Engineer", "Solutions Architect",
     "Customer Engineer", "Implementation Engineer", "Integration Engineer", "Deployment Engineer",
     "Technical Consultant", "Sales Engineer", "Developer Relations Engineer", "Developer Advocate",
-    "Applied AI Specialist", "AI Deployment Strategist",
+    "Applied AI Specialist", "AI Deployment Strategist", "Partner Engineer", "Field Engineer",
+    "Professional Services Engineer", "Onboarding Engineer", "Technical Solutions Consultant",
     # support engineering
     "Technical Support Engineer", "Support Engineer", "Product Support Engineer", "Customer Support Engineer",
-    "Cloud Support Engineer", "Escalation Engineer", "Technical Support Specialist",
-    # data
-    "Data Engineer", "Analytics Engineer", "Data Analyst", "Business Intelligence Engineer",
-    "Fraud Analyst", "Risk Analyst", "Data Quality Engineer", "AI Evaluation Engineer",
-    # infrastructure / reliability / quality
-    "DevOps Engineer", "Site Reliability Engineer", "Platform Engineer", "Cloud Engineer", "Infrastructure Engineer",
-    "Automation Engineer", "QA Engineer", "Software Engineer in Test", "Systems Engineer",
+    "Cloud Support Engineer", "Escalation Engineer", "Technical Support Specialist", "Product Specialist",
+    "Customer Success Engineer", "Developer Support Engineer", "API Support Engineer",
     # IT
     "IT Support Specialist", "IT Support Engineer", "Help Desk Technician", "Service Desk Analyst",
     "IT Engineer", "Systems Administrator", "Desktop Support Technician", "IT Operations Analyst",
+    "IT Specialist", "IT Administrator",
+    # quality / automation / operations
+    "QA Engineer", "Software Engineer in Test", "Automation Engineer", "Test Engineer",
+    "Release Engineer", "Technical Operations Engineer", "Production Support Engineer",
+    # niche data / AI
+    "Fraud Analyst", "Risk Analyst", "Data Quality Engineer", "AI Evaluation Engineer",
+    "Data Operations Analyst", "AI Trainer", "Prompt Engineer", "Trust and Safety Analyst",
+]
+
+# The crowded core roles. Not targeted unless you ask: `autoapply focus --include-core`.
+CORE_TITLES = [
+    "AI Engineer", "Applied AI Engineer", "Machine Learning Engineer", "ML Engineer", "Software Engineer",
+    "Backend Engineer", "Full Stack Engineer", "Python Developer", "Software Developer", "Data Scientist",
+    "Research Engineer", "MLOps Engineer", "ML Platform Engineer", "AI Agent Engineer", "LLM Engineer",
+    "Data Engineer", "Analytics Engineer", "Data Analyst", "Business Intelligence Engineer",
+    "DevOps Engineer", "Site Reliability Engineer", "Platform Engineer", "Cloud Engineer", "Infrastructure Engineer",
+    "Systems Engineer",
 ]
 
 

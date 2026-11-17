@@ -83,9 +83,16 @@ def prepare(app_id: int, log: Log = print) -> None:
     resume, diff_text, cover = tailor.base_resume(profile), "", ""
     if llm.available():
         log(f"  tailoring résumé for {title} at {company}")
-        resume = tailor.tailor_resume(profile, title, company, desc)
-        diff_text = tailor.diff(profile, resume)
-        cover = tailor.write_cover_letter(profile, resume, title, company, desc)
+        try:
+            resume = tailor.tailor_resume(profile, title, company, desc)
+            diff_text = tailor.diff(profile, resume)
+        except Exception as e:  # noqa: BLE001 - quota, bad JSON: carry on with the untailored résumé
+            log(f"  ! tailoring failed, using your base résumé: {str(e).splitlines()[0][:160]}")
+            resume, diff_text = tailor.base_resume(profile), ""
+        try:
+            cover = tailor.write_cover_letter(profile, resume, title, company, desc)
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! cover letter failed, continuing without one: {str(e).splitlines()[0][:160]}")
 
     base_pdf = profile.get("base_resume_pdf")
     if not llm.available() and base_pdf and Path(base_pdf).expanduser().exists():
