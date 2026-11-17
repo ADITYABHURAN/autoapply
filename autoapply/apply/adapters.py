@@ -12,7 +12,8 @@ class Adapter:
     open_form: list[str] = field(default_factory=list)   # clicked in order if present, to reveal the form
     submit: list[str] = field(default_factory=list)
     success_url: str = r"$^"
-    success_text: str = r"thank you for applying|application (has been |was )?(successfully )?(submitted|received)|thanks for applying|we('ve| have) received your application"
+    success_text: str = r"thank you for applying|application (has been |was )?(successfully )?(submitted|received)|thanks for applying|we('ve| have) received your application|successfully submitted|application submitted"
+    success_selector: str = ""                    # element that only exists on the confirmation view
 
 
 GENERIC_SUBMIT = [
@@ -41,6 +42,7 @@ ADAPTERS = {
         form_root='.ashby-application-form-container, form',
         open_form=['#job-application-form', 'a:has-text("Application"):visible'],
         submit=['button.ashby-application-form-submit-button', 'button:has-text("Submit Application"):visible', *GENERIC_SUBMIT],
+        success_selector='[class*="ashby-application-form-success"]',
     ),
     "generic": Adapter(name="generic", form_root=None, submit=GENERIC_SUBMIT),
 }
@@ -51,6 +53,11 @@ def get_adapter(ats: str) -> Adapter:
 
 
 CAPTCHA_FRAMES = re.compile(r"recaptcha/(api2|enterprise)/bframe|hcaptcha\.com/captcha|challenges\.cloudflare\.com", re.I)
+# Shown by the ATS when it refuses a submission.
+REJECTED = re.compile(r"flagged as (possible )?spam|couldn'?t submit your application|unable to (submit|process) your application|"
+                      r"error submitting|submission failed|something went wrong", re.I)
+JOB_CLOSED = re.compile(r"job (is )?(no longer|not) (available|found|open|accepting)|position (has been|is) (filled|closed)|"
+                        r"no longer accepting applications|this job has (expired|closed)|page not found|job not found", re.I)
 CODE_PROMPT = re.compile(r"(verification|security|confirmation) code", re.I)
 LOGIN_WALL = re.compile(r"sign in to (apply|continue)|create an account to apply|log in to apply", re.I)
 

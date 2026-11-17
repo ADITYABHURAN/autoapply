@@ -342,3 +342,42 @@ def test_only_targeted_roles_are_stored_and_prune():
 
     opts = ["United States Minor Outlying Islands +1", "United States +1", "United Kingdom +44"]
     assert choose_option(opts, "United States") == "United States +1"
+
+
+def test_one_click_goes_straight_to_submitted(monkeypatch):
+    """One-click: queued -> tailored -> filled -> submitted with no approval stops, and a one-page résumé."""
+    from autoapply import llm
+    from autoapply.apply import answers as ans
+
+    monkeypatch.setattr(settings, "review_before_submit", False)
+    monkeypatch.setattr(settings, "auto_approve_resume", True)
+    assert "awaiting_resume_approval" in engine.runnable_statuses() and "awaiting_submit_approval" in engine.runnable_statuses()
+
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(ans, "llm_answers", lambda fields, ctx, note="": {f.id: "I like the work." for f in fields if f.kind == "textarea"})
+    monkeypatch.setattr(tailor, "tailor_resume", lambda p, *a: tailor.base_resume(p))
+    monkeypatch.setattr(tailor, "write_cover_letter", lambda *a: "Hello.")
+    logs: list[str] = []
+    fresh = _make_app()
+    assert engine.step(fresh, logs.append) == "submitted", logs        # queued -> submitted in one step
+    with session() as s:
+        assert tailor.pdf_pages(Path(s.get(Application, fresh).resume_pdf).read_bytes()) == 1
+
+
+def test_linkedin_and_citizenship_rules():
+    import yaml
+
+    from autoapply.apply import answers as ans
+    from autoapply.apply.forms import Field
+    from autoapply.profile import TEMPLATE
+
+    p = yaml.safe_load(TEMPLATE)
+    p["personal"].update(github="https://github.com/x", website="", citizenship="India")
+    ctx = ans.Context(profile=p)
+    f = lambda label, req=True, kind="text", options=(): Field(id="x", kind=kind, label=label, required=req, options=list(options))  # noqa: E731
+    assert ans.rule_answer(f("LinkedIn profile"), ctx) == "https://github.com/x"
+    assert ans.rule_answer(f("LinkedIn profile", req=False), ctx) is None
+    assert ans.rule_answer(f("Passport Country"), ctx) == "India"
+    assert ans.rule_answer(f("Are you over the age of 18?", kind="button_group", options=["Yes", "No"]), ctx) == "Yes"
+    heard = f("Where did you hear about this vacancy?", kind="radio", options=["Linkedin", "Twitter", "Other online job boards"])
+    assert ans.rule_answer(heard, ctx) == "Other online job boards"

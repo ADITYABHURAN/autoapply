@@ -10,6 +10,7 @@ import copy
 import difflib
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,9 @@ TAILOR_SYSTEM = """You tailor a résumé to a job description.
 Rules:
 - Use ONLY facts present in the candidate's résumé JSON. Never add employers, titles, dates, degrees, tools, metrics or achievements that are not there.
 - You may reword bullets to use the job description's vocabulary where the underlying fact supports it, reorder bullets so the most relevant come first, drop the least relevant bullets, reorder skills, and rewrite the summary.
-- Keep each bullet to one or two lines, starting with a strong verb. Keep every number exactly as given.
+- Keep each bullet to one or two lines (at most 28 words), starting with a strong verb. Keep every number exactly as given.
+- The résumé must fit ONE page: at most 3 bullets for the most recent role and 2 for the others, at most 2 projects with 1-2 bullets each (keep the most relevant; drop the rest), and at most 20 skills (most relevant first).
+- Summary: 2 sentences positioned for this job.
 - Return JSON only, with the same shape as the input: {"summary": str, "skills": [str], "experience": [{"company","title","location","start","end","bullets":[str]}], "education": [...], "projects": [{"name","bullets":[str]}]}"""
 
 COVER_SYSTEM = """You write a short cover letter (150-220 words, 3 paragraphs, no header or address block, no placeholders).
@@ -51,7 +54,10 @@ def enforce_facts(tailored: dict[str, Any], profile: dict[str, Any]) -> dict[str
 
     by_name = {p.get("name", ""): p for p in tailored.get("projects") or [] if isinstance(p, dict)}
     out["projects"] = []
+    kept = [n for n in by_name if n in {p.get("name", "") for p in base["projects"] or []}]
     for orig in base["projects"] or []:
+        if kept and orig.get("name", "") not in kept:
+            continue  # the model may drop less relevant projects to fit one page, never add one
         new = by_name.get(orig.get("name", ""), {})
         bullets = [b for b in new.get("bullets") or [] if isinstance(b, str) and b.strip()]
         out["projects"].append({**orig, "bullets": bullets or orig.get("bullets") or []})
@@ -90,7 +96,24 @@ def diff(profile: dict[str, Any], tailored: dict[str, Any]) -> str:
         resume_lines(base_resume(profile)), resume_lines(tailored), "base", "tailored", lineterm="", n=1))
 
 
-def render_html(profile: dict[str, Any], resume: dict[str, Any]) -> str:
+# Progressively tighter layouts tried until the résumé fits one page:
+# (font pt, line height, page margin in, max bullets per role, max projects, max bullets per project)
+FIT_LEVELS = [
+    (10.5, 1.35, 0.5, 9, 9, 9), (10.0, 1.3, 0.45, 9, 9, 9), (9.5, 1.25, 0.4, 3, 3, 2), (9.5, 1.25, 0.4, 3, 2, 2),
+    (9.0, 1.22, 0.4, 2, 2, 2), (9.0, 1.2, 0.35, 2, 2, 1), (8.5, 1.18, 0.35, 2, 1, 1), (8.5, 1.18, 0.35, 2, 0, 0),
+    (8.0, 1.15, 0.3, 1, 0, 0),
+]
+
+
+def _trim(resume: dict[str, Any], max_bullets: int, max_projects: int, max_proj_bullets: int) -> dict[str, Any]:
+    out = copy.deepcopy(resume)
+    for i, x in enumerate(out.get("experience") or []):
+        x["bullets"] = (x.get("bullets") or [])[: max_bullets + (1 if i == 0 and max_bullets < 9 else 0)]
+    out["projects"] = [{**p, "bullets": (p.get("bullets") or [])[:max_proj_bullets]} for p in (out.get("projects") or [])[:max_projects]]
+    return out
+
+
+def render_html(profile: dict[str, Any], resume: dict[str, Any], font: float = 10.5, leading: float = 1.35) -> str:
     def e(value) -> str:  # YAML gives ints for years
         return html.escape(str(value if value is not None else ""))
 
@@ -107,7 +130,7 @@ def render_html(profile: dict[str, Any], resume: dict[str, Any]) -> str:
         parts.append("<h2>Experience</h2>")
         for x in resume["experience"]:
             parts.append(
-                f"<div class=r><b>{e(x.get('title', ''))}</b>, {e(x.get('company', ''))}"
+                f"<div class=r><span><b>{e(x.get('title', ''))}</b>, {e(x.get('company', ''))}</span>"
                 f"<span>{e(x.get('start', ''))} - {e(x.get('end', ''))}</span></div>"
                 f"<div class=l>{e(x.get('location', '') or '')}</div><ul>"
                 + "".join(f"<li>{e(b)}</li>" for b in x.get("bullets") or []) + "</ul>")
@@ -124,10 +147,10 @@ def render_html(profile: dict[str, Any], resume: dict[str, Any]) -> str:
             parts.append(f"<div class=r><span><b>{e(x.get('school', ''))}</b>, {e(deg)}{gpa}</span>"
                          f"<span>{e(str(x.get('start', '') or ''))} - {e(str(x.get('end', '') or ''))}</span></div>")
     # Single column, real text, standard headings: parses cleanly in ATS résumé parsers.
-    css = ("body{font:10.5pt/1.35 Arial,Helvetica,sans-serif;color:#111;margin:0}"
-           "h1{font-size:19pt;margin:0;text-align:center}.c{text-align:center;margin:2pt 0 6pt;font-size:9.5pt}"
-           "h2{font-size:11pt;text-transform:uppercase;border-bottom:1px solid #444;margin:9pt 0 4pt;padding-bottom:1pt}"
-           "p{margin:0 0 3pt}.r{display:flex;justify-content:space-between;margin-top:4pt}.l{font-style:italic;font-size:9.5pt}"
+    css = (f"body{{font:{font}pt/{leading} Arial,Helvetica,sans-serif;color:#111;margin:0}}"
+           "h1{font-size:1.8em;margin:0;text-align:center}.c{text-align:center;margin:2pt 0 5pt;font-size:.9em}"
+           "h2{font-size:1.05em;text-transform:uppercase;border-bottom:1px solid #444;margin:.7em 0 .3em;padding-bottom:1pt}"
+           "p{margin:0 0 3pt}.r{display:flex;justify-content:space-between;margin-top:4pt}.l{font-style:italic;font-size:.9em}"
            "ul{margin:2pt 0 0;padding-left:15pt}li{margin-bottom:1.5pt}")
     return f"<!doctype html><html><head><meta charset=utf-8><style>{css}</style></head><body>{''.join(parts)}</body></html>"
 
@@ -142,8 +165,17 @@ def render_pdf(profile: dict[str, Any], resume: dict[str, Any], out_path: Path) 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(**{**launch_kwargs(), "headless": True})
         page = browser.new_page()
-        page.set_content(render_html(profile, resume))
-        page.pdf(path=str(out_path), format="Letter",
-                 margin={"top": "0.5in", "bottom": "0.5in", "left": "0.6in", "right": "0.6in"})
+        pdf = b""
+        for font, leading, margin, mb, mp, mpb in FIT_LEVELS:
+            page.set_content(render_html(profile, _trim(resume, mb, mp, mpb), font, leading))
+            pdf = page.pdf(format="Letter", margin={"top": f"{margin}in", "bottom": f"{margin}in",
+                                                    "left": f"{margin + 0.1}in", "right": f"{margin + 0.1}in"})
+            if pdf_pages(pdf) <= 1:
+                break
+        out_path.write_bytes(pdf)
         browser.close()
     return out_path
+
+
+def pdf_pages(pdf: bytes) -> int:
+    return len(re.findall(rb"/Type\s*/Page(?![s\w])", pdf))

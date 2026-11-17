@@ -92,7 +92,9 @@ def _rules() -> list[Rule]:
         (R(r"^(full |legal |your )*name$|full name|legal name"), TEXTY, lambda c, f: full_name(c.profile)),
         (R(r"e-?mail"), ("text",), lambda c, f: P(c).get("email")),
         (R(r"phone|mobile|telephone"), ("text",), lambda c, f: P(c).get("phone")),
-        (R(r"linkedin"), ("text",), lambda c, f: P(c).get("linkedin")),
+        # No LinkedIn? A required LinkedIn field gets your portfolio/GitHub link rather than blocking the application.
+        (R(r"linkedin"), ("text",), lambda c, f: P(c).get("linkedin") or ((P(c).get("website") or P(c).get("github")) if f.required else None)),
+        (R(r"passport|citizenship|nationality|country of (citizen|origin)"), TEXTY, lambda c, f: P(c).get("citizenship") or None),
         (R(r"github"), ("text",), lambda c, f: P(c).get("github")),
         (R(r"website|portfolio|personal site"), ("text",), lambda c, f: P(c).get("website") or P(c).get("github")),
         (R(r"street|address line|^address"), ("text",), lambda c, f: P(c).get("address")),
@@ -110,7 +112,7 @@ def _rules() -> list[Rule]:
         (R(r"\brace\b|ethnic"), None, lambda c, f: _eeo(E(c).get("race", "Decline to self-identify"), f)),
         (R(r"veteran"), None, lambda c, f: _eeo(E(c).get("veteran", "I am not a protected veteran"), f)),
         (R(r"disabilit"), None, lambda c, f: _eeo(E(c).get("disability", "I do not wish to answer"), f)),
-        (R(r"(18|eighteen) years"), None, lambda c, f: "Yes"),
+        (R(r"(18|eighteen) years|(age of|over|least) (18|eighteen)"), None, lambda c, f: "Yes"),
         (R(r"salary|compensation|pay expectation|desired pay"), ("text", "textarea"),
          lambda c, f: c.profile["preferences"].get("salary_expectation") or None),
         (R(r"start date|when (can|could) you start|notice period|earliest.*start|available to start"), ("text", "textarea"),
@@ -118,9 +120,9 @@ def _rules() -> list[Rule]:
         (R(r"(on-?site|in-?person|in[- ]office|hybrid|from (the|our|an) office|days? (a|per) week in)"), None,
          lambda c, f: _yn(c.profile["preferences"].get("open_to_onsite", True)) if f.options else None),
         (R(r"relocat"), None, lambda c, f: _yn(c.profile["preferences"].get("willing_to_relocate")) if f.options else None),
-        (R(r"how did you (hear|find|learn)|source of (application|referral)"), None,
-         lambda c, f: (choose_option(f.options, "Company website") or choose_option(f.options, "Careers page")
-                       or choose_option(f.options, "Other")) if f.options else "Company careers page"),
+        (R(r"(how|where) did you (first )?(hear|find|learn)|source of (application|referral)"), None,
+         lambda c, f: next((o for o in f.options if re.search(r"company (web)?site|career|job board|other", o, re.I)), None)
+         if f.options else "Company careers page"),
         (R(r"current (company|employer)|most recent (company|employer)"), ("text",), lambda c, f: X(c).get("company")),
         (R(r"current (job )?title|current (role|position)|most recent title"), ("text",), lambda c, f: X(c).get("title")),
         (R(r"^school|university|college|institution"), TEXTY, lambda c, f: ED(c).get("school")),

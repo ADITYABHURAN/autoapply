@@ -20,7 +20,8 @@ personal:
   country: "United States"
   zip: ""
   address: ""
-  linkedin: ""
+  linkedin: ""              # if empty, required LinkedIn fields get your website/GitHub link
+  citizenship: ""           # country of citizenship / passport, e.g. "India" (forms ask this)
   github: ""
   website: ""
 

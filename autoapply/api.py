@@ -50,8 +50,11 @@ def _worker() -> None:
         _busy.set()
         try:
             if kind == "step":
-                _say(f"Application #{arg}")
-                engine.step(arg, _say)
+                if engine.submitted_today() >= settings.daily_cap:
+                    _say(f"Application #{arg}: daily cap of {settings.daily_cap} reached, left for tomorrow")
+                else:
+                    _say(f"Application #{arg}")
+                    _say(f"  -> {engine.step(arg, _say)}")
             elif kind == "discover":
                 _say("Checking career pages...")
                 new = discovery.discover(log=_say)
@@ -140,6 +143,17 @@ def apply(job_id: int) -> dict:
     app_id = engine.enqueue(job_id)
     _work.put(("step", app_id))
     return {"application_id": app_id}
+
+
+@app.post("/api/run-all")
+def run_all() -> dict:
+    """Push every application the machine can advance on its own (one-click mode: all that are waiting)."""
+    with session() as s:
+        ids = s.scalars(select(Application.id).where(
+            Application.status.in_(engine.runnable_statuses())).order_by(Application.id)).all()
+    for app_id in ids:
+        _work.put(("step", app_id))
+    return {"queued": len(ids)}
 
 
 @app.post("/api/discover")
@@ -273,4 +287,5 @@ def state() -> dict:
     return {"busy": _busy.is_set(), "queued_work": _work.qsize(), "log": _log[-40:], "counts": counts,
             "jobs_total": jobs_total, "submitted_today": engine.submitted_today(), "daily_cap": settings.daily_cap,
             "threshold": settings.match_threshold, "llm": llm.available(),
-            "review_before_submit": settings.review_before_submit, "auto_approve_resume": settings.auto_approve_resume}
+            "review_before_submit": settings.review_before_submit, "auto_approve_resume": settings.auto_approve_resume,
+            "one_click": settings.one_click}

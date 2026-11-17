@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 
 from . import inbox, llm, tailor
 from .apply import answers as ans
-from .apply.adapters import CODE_PROMPT, LOGIN_WALL, Adapter, captcha_challenge_visible, get_adapter
+from .apply.adapters import JOB_CLOSED, REJECTED, CODE_PROMPT, LOGIN_WALL, Adapter, captcha_challenge_visible, get_adapter
 from .apply.forms import Field, FillError, extract_fields, fill_field
 from .config import settings
 from .db import Application, Job, session, utcnow
@@ -38,6 +38,16 @@ def enqueue(job_id: int, source: str = "manual") -> int:
         elif app.status in ("failed", "cancelled", "needs_manual"):
             app.status, app.error = ("ready_to_fill" if app.resume_pdf else "queued"), None
         return app.id
+
+
+def runnable_statuses() -> tuple[str, ...]:
+    """Statuses the machine can advance on its own under the current settings."""
+    out = ["queued", "ready_to_fill", "submitting"]
+    if settings.auto_approve_resume:
+        out.append("awaiting_resume_approval")
+    if not settings.review_before_submit:
+        out.append("awaiting_submit_approval")
+    return tuple(out)
 
 
 def submitted_today() -> int:
@@ -202,6 +212,14 @@ def _submit(page, adapter: Adapter, log: Log) -> None:
         body = _body_text(page)
         if success_url.search(page.url) or success_text.search(body):
             return
+        try:
+            if adapter.success_selector and page.locator(adapter.success_selector).first.is_visible():
+                return
+        except Exception:
+            pass
+        rejected = REJECTED.search(body)
+        if rejected:
+            raise RuntimeError(f"The employer's site refused the submission: {body[max(0, rejected.start() - 80):rejected.end() + 160].strip()}")
         if captcha_challenge_visible(page):
             _wait_for_human(page, lambda: captcha_challenge_visible(page), "CAPTCHA challenge", log)
             deadline = time.time() + 30
@@ -268,6 +286,8 @@ def run_form(app_id: int, submit: bool, log: Log = print) -> None:
 
         fields = _open_form(page, adapter)
         if not fields:
+            if JOB_CLOSED.search(_body_text(page)):
+                raise RuntimeError("This job is closed (the posting is no longer accepting applications)")
             raise RuntimeError("No application form found on the page")
         # On the submit pass every answer was already approved, so the LLM is not consulted again.
         results = _fill_all(page, fields, ctx, approved, use_llm=not submit, log=log)
@@ -356,6 +376,11 @@ def step(app_id: int, log: Log = print) -> str:
             prepare(app_id, log)
             with session() as s:
                 status = s.get(Application, app_id).status
+        if status == "awaiting_resume_approval" and settings.auto_approve_resume:
+            approve_resume(app_id)
+            status = "ready_to_fill"
+        if status == "awaiting_submit_approval" and not settings.review_before_submit:
+            status = "ready_to_fill"  # one-click: fill again (new rules may answer what was missing) and submit
         if status in ("ready_to_fill", "filling"):
             run_form(app_id, submit=not settings.review_before_submit, log=log)
         elif status == "submitting":
@@ -380,7 +405,7 @@ def process_queue(log: Log = print) -> dict[str, int]:
     """Run every application that is waiting on the machine rather than on you."""
     with session() as s:
         ids = s.scalars(select(Application.id).where(
-            Application.status.in_(("queued", "ready_to_fill", "submitting"))).order_by(Application.id)).all()
+            Application.status.in_(runnable_statuses())).order_by(Application.id)).all()
     tally: dict[str, int] = {}
     for app_id in ids:
         if submitted_today() >= settings.daily_cap:

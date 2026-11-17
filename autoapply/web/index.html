@@ -65,6 +65,7 @@
     <button data-tab="log">Activity</button>
   </nav>
   <span class="meta" id="meta"></span>
+  <button class="btn" id="runall" onclick="runAll(this)" title="Tailor, fill and submit every application that is waiting">Run all waiting</button>
 </header>
 <main>
   <section id="matches">
@@ -195,12 +196,19 @@ $('#addurl').onclick = async () => {
 };
 $('#q').oninput = $('#min').oninput = () => loadJobs();
 
+async function runAll(btn) {
+  btn.disabled = true;
+  const r = await api('/run-all', {});
+  btn.textContent = `${r.queued} started`;
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Run all waiting'; }, 4000);
+}
+
 async function refresh() {
   try {
     const st = await api('/state');
     const waiting = (st.counts.awaiting_resume_approval || 0) + (st.counts.awaiting_submit_approval || 0);
     $('#meta').textContent = `${st.busy ? 'Working… · ' : ''}${st.jobs_total} jobs · ${st.submitted_today}/${st.daily_cap} submitted today` +
-      (waiting ? ` · ${waiting} waiting for you` : '') + (st.llm ? '' : ' · no LLM key');
+      (waiting ? ` · ${waiting} waiting` : '') + (st.one_click ? ' · one-click on' : '') + (st.llm ? '' : ' · no LLM key');
     $('#logbox').textContent = st.log.join('\n') || 'Nothing yet.';
     if (!$('#matches').hidden && !document.activeElement.matches('#q, #min, #url')) loadJobs();
     if (!$('#apps').hidden && !$('#applist').querySelector(':focus')) loadApps();
@@ -301,7 +309,7 @@ function renderProfile(problems) {
       ${row('personal.email', 'Email')}${row('personal.phone', 'Phone')}
       ${row('personal.city', 'City')}${row('personal.state', 'State')}
       ${row('personal.zip', 'ZIP')}${row('personal.country', 'Country')}
-      ${row('personal.address', 'Street address')}${row('personal.linkedin', 'LinkedIn URL')}
+      ${row('personal.address', 'Street address')}${row('personal.linkedin', 'LinkedIn URL (blank: required LinkedIn fields get your website/GitHub)')}${row('personal.citizenship', 'Country of citizenship / passport')}
       ${row('personal.github', 'GitHub URL')}${row('personal.website', 'Website / portfolio')}
     </div></fieldset>
 

@@ -46,7 +46,10 @@ class Settings:
     headless: bool = field(default_factory=lambda: _bool("AUTOAPPLY_HEADLESS", False))
     browser_channel: str = field(default_factory=lambda: os.environ.get("AUTOAPPLY_BROWSER_CHANNEL", "chrome"))
 
-    # Gates. Both default to "stop and ask", like Tsenta with auto-approve off.
+    # One click: queueing a job tailors, fills and submits with no approval stops. An application
+    # still pauses for you when a required question could not be answered. Set
+    # AUTOAPPLY_ONE_CLICK=false to bring back the two review gates below.
+    one_click: bool = field(default_factory=lambda: _bool("AUTOAPPLY_ONE_CLICK", True))
     auto_approve_resume: bool = field(default_factory=lambda: _bool("AUTOAPPLY_AUTO_APPROVE_RESUME", False))
     review_before_submit: bool = field(default_factory=lambda: _bool("AUTOAPPLY_REVIEW_BEFORE_SUBMIT", True))
 
@@ -59,6 +62,10 @@ class Settings:
     imap_host: str = field(default_factory=lambda: os.environ.get("IMAP_HOST", ""))
     imap_user: str = field(default_factory=lambda: os.environ.get("IMAP_USER", ""))
     imap_password: str = field(default_factory=lambda: os.environ.get("IMAP_PASSWORD", ""))
+
+    def __post_init__(self) -> None:
+        if self.one_click:
+            self.auto_approve_resume, self.review_before_submit = True, False
 
     @property
     def profile_path(self) -> Path:
